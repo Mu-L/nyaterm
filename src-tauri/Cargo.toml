@@ -51,7 +51,8 @@ uuid = { version = "1", features = ["v4"] }
 async-trait = "0.1"
 thiserror = "2"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "local-time"] }
+time = { version = "0.3", features = ["formatting", "local-offset", "macros"] }
 tracing-appender = "0.2"
 nucleo-matcher = "0.3"
 dirs = "6.0.0"
@@ -65,6 +66,13 @@ lazy_static = "1.5.0"
 tokio-socks = "0.5.2"
 async-http-proxy = { version = "1.2.5", features = ["runtime-tokio"] }
 font-kit = "0.14.3"
+reqwest = { version = "0.13", features = ["json", "form", "query"] }
+md-5 = "0.10"
+hmac = "0.12"
+hex = "0.4"
+urlencoding = "2"
+zip = "8"
+encoding_rs = "0.8"
 
 [profile.release]
 lto = true

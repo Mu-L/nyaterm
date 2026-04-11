@@ -37,7 +37,9 @@ import NewSymlinkDialog, {
 import PropertiesDialog, {
   type PropertiesDialogData,
 } from "@/components/dialog/file-explorer/PropertiesDialog";
-import RenameDialog, { type RenameDialogData } from "@/components/dialog/file-explorer/RenameDialog";
+import RenameDialog, {
+  type RenameDialogData,
+} from "@/components/dialog/file-explorer/RenameDialog";
 import PanelHeader from "@/components/layout/PanelHeader";
 import { Button } from "@/components/ui/button";
 import {

@@ -45,13 +45,6 @@ import { useIdleLock } from "./hooks/useIdleLock";
 import { invoke } from "./lib/invoke";
 import { logger } from "./lib/logger";
 import {
-  collectSessionPanes,
-  findPaneBySessionId,
-  findTabBySessionId,
-  getActivePane,
-  getTabDisplayName,
-} from "./lib/workspaceTabs";
-import {
   findTerminalWindowLeafById,
   findTerminalWindowLeafByTabId,
   insertTabAfterInLeaf,
@@ -61,8 +54,8 @@ import {
   reorderTabsInLeaf,
   setLeafActiveTab,
   splitTerminalWindowForTab,
-  updateTerminalWindowSplitRatio,
   type TerminalWindowNode,
+  updateTerminalWindowSplitRatio,
 } from "./lib/tabWindows";
 import {
   DEFAULT_TERMINAL_FONT_SIZE,
@@ -76,6 +69,13 @@ import {
   openSettings,
   syncMainWindowModalState,
 } from "./lib/windowManager";
+import {
+  collectSessionPanes,
+  findPaneBySessionId,
+  findTabBySessionId,
+  getActivePane,
+  getTabDisplayName,
+} from "./lib/workspaceTabs";
 import type {
   ActivityBarLayout,
   ActivityBarZone,
@@ -215,30 +215,27 @@ function App() {
         type: "SSH" | "Local" | "Telnet" | "Serial";
         targetLeafId?: string;
         anchorTabId?: string | null;
-      }>(
-        "session-created",
-        (event) => {
-          const { sessionId, name: sessionName, type, targetLeafId, anchorTabId } = event.payload;
-          const tabId = addTab(
-            sessionId,
-            sessionName,
-            type,
-            undefined,
-            undefined,
-            anchorTabId ? { afterTabId: anchorTabId } : undefined,
+      }>("session-created", (event) => {
+        const { sessionId, name: sessionName, type, targetLeafId, anchorTabId } = event.payload;
+        const tabId = addTab(
+          sessionId,
+          sessionName,
+          type,
+          undefined,
+          undefined,
+          anchorTabId ? { afterTabId: anchorTabId } : undefined,
+        );
+        if (targetLeafId) {
+          setTerminalWindows((current) =>
+            current
+              ? insertTabIntoLeaf(current, targetLeafId, tabId, {
+                  afterTabId: anchorTabId,
+                  activeTabId: tabId,
+                })
+              : current,
           );
-          if (targetLeafId) {
-            setTerminalWindows((current) =>
-              current
-                ? insertTabIntoLeaf(current, targetLeafId, tabId, {
-                    afterTabId: anchorTabId,
-                    activeTabId: tabId,
-                  })
-                : current,
-            );
-          }
-        },
-      ),
+        }
+      }),
     );
 
     unsubs.push(
@@ -252,58 +249,58 @@ function App() {
         "session-connect-after-edit",
         async (event) => {
           const { connectionId, targetLeafId, anchorTabId } = event.payload;
-        try {
-          const conns = await invoke<SavedConnection[]>("get_saved_connections");
-          const conn = conns.find((c) => c.id === connectionId);
-          const connName = conn?.name ?? connectionId;
-          const typeMap: Record<string, "SSH" | "Local" | "Telnet" | "Serial"> = {
-            ssh: "SSH",
-            local_terminal: "Local",
-            telnet: "Telnet",
-            serial: "Serial",
-          };
-          const sessionType = typeMap[conn?.type ?? "ssh"] ?? "SSH";
-          const tabId = addPendingTab(
-            connName,
-            sessionType,
-            connectionId,
-            undefined,
-            anchorTabId ? { afterTabId: anchorTabId } : undefined,
-          );
-          if (targetLeafId) {
-            setTerminalWindows((current) =>
-              current
-                ? insertTabIntoLeaf(current, targetLeafId, tabId, {
-                    afterTabId: anchorTabId,
-                    activeTabId: tabId,
-                  })
-                : current,
-            );
-          }
           try {
-            let sessionId: string;
-            switch (conn?.type) {
-              case "local_terminal":
-                sessionId = await invoke<string>("create_local_session", { connectionId });
-                break;
-              case "telnet":
-                sessionId = await invoke<string>("create_telnet_session", { connectionId });
-                break;
-              case "serial":
-                sessionId = await invoke<string>("create_serial_session", { connectionId });
-                break;
-              default:
-                sessionId = await invoke<string>("create_ssh_session", { connectionId });
-                break;
+            const conns = await invoke<SavedConnection[]>("get_saved_connections");
+            const conn = conns.find((c) => c.id === connectionId);
+            const connName = conn?.name ?? connectionId;
+            const typeMap: Record<string, "SSH" | "Local" | "Telnet" | "Serial"> = {
+              ssh: "SSH",
+              local_terminal: "Local",
+              telnet: "Telnet",
+              serial: "Serial",
+            };
+            const sessionType = typeMap[conn?.type ?? "ssh"] ?? "SSH";
+            const tabId = addPendingTab(
+              connName,
+              sessionType,
+              connectionId,
+              undefined,
+              anchorTabId ? { afterTabId: anchorTabId } : undefined,
+            );
+            if (targetLeafId) {
+              setTerminalWindows((current) =>
+                current
+                  ? insertTabIntoLeaf(current, targetLeafId, tabId, {
+                      afterTabId: anchorTabId,
+                      activeTabId: tabId,
+                    })
+                  : current,
+              );
             }
-            updateTabSession(tabId, sessionId);
+            try {
+              let sessionId: string;
+              switch (conn?.type) {
+                case "local_terminal":
+                  sessionId = await invoke<string>("create_local_session", { connectionId });
+                  break;
+                case "telnet":
+                  sessionId = await invoke<string>("create_telnet_session", { connectionId });
+                  break;
+                case "serial":
+                  sessionId = await invoke<string>("create_serial_session", { connectionId });
+                  break;
+                default:
+                  sessionId = await invoke<string>("create_ssh_session", { connectionId });
+                  break;
+              }
+              updateTabSession(tabId, sessionId);
+            } catch {
+              setTerminalWindows((current) => removeTabFromTerminalWindows(current, tabId));
+              closeTab(tabId);
+            }
           } catch {
-            setTerminalWindows((current) => removeTabFromTerminalWindows(current, tabId));
-            closeTab(tabId);
+            /* ignore */
           }
-        } catch {
-          /* ignore */
-        }
         },
       ),
     );
@@ -378,7 +375,9 @@ function App() {
 
   const handleSelectLeafTab = useCallback(
     (leafId: string, tabId: string) => {
-      setTerminalWindows((current) => (current ? setLeafActiveTab(current, leafId, tabId) : current));
+      setTerminalWindows((current) =>
+        current ? setLeafActiveTab(current, leafId, tabId) : current,
+      );
       setActiveTabId(tabId);
     },
     [setActiveTabId],
@@ -386,7 +385,9 @@ function App() {
 
   const handleAddTabFromLeaf = useCallback(
     (leafId: string) => {
-      const targetLeaf = terminalWindows ? findTerminalWindowLeafById(terminalWindows, leafId) : null;
+      const targetLeaf = terminalWindows
+        ? findTerminalWindowLeafById(terminalWindows, leafId)
+        : null;
       if (targetLeaf?.activeTabId) {
         handleSelectLeafTab(leafId, targetLeaf.activeTabId);
       }
@@ -651,14 +652,6 @@ function App() {
     };
   }, [handleZoomIn, handleZoomOut]);
 
-  const handleToggleFullscreen = useCallback(() => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch(() => {});
-    } else {
-      document.exitFullscreen();
-    }
-  }, []);
-
   const handleOpenSettings = useCallback(() => {
     openSettings();
   }, []);
@@ -799,9 +792,7 @@ function App() {
     if (!window.confirm(t("tabCtx.closeAllConfirm"))) return;
 
     const results = await Promise.all(tabs.map((tab) => closeWorkspaceTabSessions(tab)));
-    const successfulTabIds = tabs
-      .filter((_, index) => results[index])
-      .map((tab) => tab.id);
+    const successfulTabIds = tabs.filter((_, index) => results[index]).map((tab) => tab.id);
 
     if (successfulTabIds.length > 0) {
       closeTabs(successfulTabIds);
@@ -815,7 +806,9 @@ function App() {
 
   const handleCloseInactiveTabs = useCallback(
     async (keepTabId: string) => {
-      const leaf = terminalWindows ? findTerminalWindowLeafByTabId(terminalWindows, keepTabId) : null;
+      const leaf = terminalWindows
+        ? findTerminalWindowLeafByTabId(terminalWindows, keepTabId)
+        : null;
       const targetTabs = leaf?.tabIds ?? tabs.map((tab) => tab.id);
       const tabsToClose = tabs.filter((tab) => targetTabs.includes(tab.id) && tab.id !== keepTabId);
       const results = await Promise.all(tabsToClose.map((tab) => closeWorkspaceTabSessions(tab)));
@@ -895,7 +888,6 @@ function App() {
     onZoomIn: handleZoomIn,
     onZoomOut: handleZoomOut,
     onResetZoom: handleResetZoom,
-    onToggleFullscreen: handleToggleFullscreen,
     onOpenSettings: handleOpenSettings,
     onLockScreen: handleLockScreen,
   });
@@ -1254,7 +1246,7 @@ function App() {
   return (
     <TransferProvider>
       <div
-        className="font-display h-screen flex flex-col overflow-hidden"
+        className="font-display h-full min-h-0 flex flex-col overflow-hidden"
         style={{ backgroundColor: "var(--df-bg)", color: "var(--df-text)" }}
       >
         {/* Header */}

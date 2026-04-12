@@ -13,7 +13,6 @@ import {
   MdContentPaste,
   MdFileUpload,
   MdFilterNone,
-  MdFullscreen,
   MdInfo,
   MdMenu,
   MdMenuBook,
@@ -80,7 +79,6 @@ const iconMap: Record<string, React.ElementType> = {
   zoom_in: MdZoomIn,
   zoom_out: MdZoomOut,
   restart_alt: MdRestartAlt,
-  fullscreen: MdFullscreen,
   computer: MdComputer,
   menu_book: MdMenuBook,
   update: MdUpdate,
@@ -190,19 +188,8 @@ export default function Header({
       appearance: { ...prev.appearance, font_size: DEFAULT_TERMINAL_FONT_SIZE },
     }));
 
-  const toggleFullscreen = () => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch((err) => {
-        console.error(`Error attempting to enable fullscreen: ${err.message}`);
-      });
-    } else {
-      document.exitFullscreen();
-    }
-  };
-
   const menuKeys = [
     { key: "file", label: t("menu.file") },
-    { key: "edit", label: t("menu.edit") },
     { key: "view", label: t("menu.view") },
     { key: "help", label: t("menu.help") },
   ];
@@ -221,11 +208,6 @@ export default function Header({
         icon: "file_upload",
       },
       { label: "separator", separator: true },
-    ],
-    edit: [
-      { label: t("menu.copy"), icon: "content_copy", shortcut: `${MOD}+Shift+C` },
-      { label: t("menu.paste"), icon: "content_paste", shortcut: `${MOD}+Shift+V` },
-      { label: t("menu.selectAll"), icon: "select_all" },
     ],
     view: [
       {
@@ -264,13 +246,6 @@ export default function Header({
         action: handleResetZoom,
         icon: "restart_alt",
         shortcut: `${MOD}+0`,
-      },
-      { label: "separator", separator: true },
-      {
-        label: t("menu.fullscreen"),
-        action: toggleFullscreen,
-        icon: "fullscreen",
-        shortcut: "F11",
       },
     ],
     help: [

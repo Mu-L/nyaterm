@@ -14,7 +14,6 @@ export interface ShortcutCallbacks {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onResetZoom: () => void;
-  onToggleFullscreen: () => void;
   onOpenSettings: () => void;
   onLockScreen: () => void;
 }
@@ -43,7 +42,6 @@ export function useGlobalShortcuts(cb: ShortcutCallbacks) {
   useHotkeys("ctrl+=, meta+=, ctrl+shift+=, meta+shift+=", cb.onZoomIn, HOTKEY_OPTIONS);
   useHotkeys("ctrl+-, meta+-", cb.onZoomOut, HOTKEY_OPTIONS);
   useHotkeys("ctrl+0, meta+0", cb.onResetZoom, HOTKEY_OPTIONS);
-  useHotkeys("f11", cb.onToggleFullscreen, HOTKEY_OPTIONS);
   useHotkeys("ctrl+comma, meta+comma", cb.onOpenSettings, HOTKEY_OPTIONS);
 
   // --- Special ---

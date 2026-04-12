@@ -48,7 +48,6 @@ export function InteractionTab() {
         { label: t("settings.shortcutLabels.zoomIn"), keys: `${MOD}+=` },
         { label: t("settings.shortcutLabels.zoomOut"), keys: `${MOD}+-` },
         { label: t("settings.shortcutLabels.resetZoom"), keys: `${MOD}+0` },
-        { label: t("settings.shortcutLabels.toggleFullscreen"), keys: "F11" },
       ],
     },
     {

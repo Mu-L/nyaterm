@@ -558,6 +558,8 @@
     "authentication": "系统认证与加密",
     "browse": "浏览",
     "clipboard": "剪贴板和选择",
+    "commandSuggestions": "联想补全",
+    "commandSuggestionsDesc": "输入命令时显示基于历史记录和内置命令的联想补全建议。",
     "configured": "已配置",
     "confirmOnClose": "关闭时确认",
     "confirmOnCloseDesc": "在有活动会话时关闭应用程序时显示确认对话框。",

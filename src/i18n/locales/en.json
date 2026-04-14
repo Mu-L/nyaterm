@@ -558,6 +558,8 @@
     "authentication": "Authentication",
     "browse": "Browse",
     "clipboard": "Clipboard & Selection",
+    "commandSuggestions": "Command Suggestions",
+    "commandSuggestionsDesc": "Show autocomplete suggestions from command history and built-in commands while typing.",
     "configured": "Configured",
     "confirmOnClose": "Confirm on close",
     "confirmOnCloseDesc": "Show a confirmation dialog when closing the application with active sessions.",

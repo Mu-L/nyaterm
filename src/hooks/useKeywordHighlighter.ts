@@ -77,11 +77,7 @@ export function useKeywordHighlighter(
       enabled,
       terminalSettings.keyword_highlights_across_wrapped_lines ?? false,
     );
-  }, [
-    mergedRules,
-    enabled,
-    terminalSettings.keyword_highlights_across_wrapped_lines,
-  ]);
+  }, [mergedRules, enabled, terminalSettings.keyword_highlights_across_wrapped_lines]);
 
   useEffect(() => {
     highlighterRef.current?.setSuspended(suspended);

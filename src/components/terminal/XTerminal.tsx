@@ -1370,9 +1370,7 @@ export default function XTerminal({
               </div>
               {riskPrompt.risk.safeAlternatives.length > 0 ? (
                 <div>
-                  <div className="mb-1 text-muted-foreground">
-                    {t("ai.safeAlternatives")}
-                  </div>
+                  <div className="mb-1 text-muted-foreground">{t("ai.safeAlternatives")}</div>
                   <pre className="rounded-md bg-muted/40 p-2 font-mono whitespace-pre-wrap break-all">
                     {riskPrompt.risk.safeAlternatives.join("\n")}
                   </pre>

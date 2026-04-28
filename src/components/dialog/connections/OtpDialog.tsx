@@ -123,7 +123,7 @@ export function OtpDialog({ request, onDone }: OtpDialogProps) {
     const next = [...responses];
     next[0] = code;
     setResponses(next);
-    
+
     setCodeLengths((prev) => {
       if ((prev[0] ?? 0) >= code.length) return prev;
       const nextLengths = [...prev];

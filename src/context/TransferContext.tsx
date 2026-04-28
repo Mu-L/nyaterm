@@ -1,5 +1,13 @@
 import { listen } from "@tauri-apps/api/event";
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { invoke } from "@/lib/invoke";
@@ -266,14 +274,19 @@ export function TransferProvider({ children }: { children: ReactNode }) {
       cancelTransfer,
       retryTransfer,
     }),
-    [transfers, clearCompleted, clearAll, removeTransfer, pauseTransfer, resumeTransfer, cancelTransfer, retryTransfer],
+    [
+      transfers,
+      clearCompleted,
+      clearAll,
+      removeTransfer,
+      pauseTransfer,
+      resumeTransfer,
+      cancelTransfer,
+      retryTransfer,
+    ],
   );
 
-  return (
-    <TransferContext.Provider value={contextValue}>
-      {children}
-    </TransferContext.Provider>
-  );
+  return <TransferContext.Provider value={contextValue}>{children}</TransferContext.Provider>;
 }
 
 export function useTransfer(): TransferContextValue {

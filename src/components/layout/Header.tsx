@@ -33,7 +33,12 @@ import {
   MdZoomIn,
   MdZoomOut,
 } from "react-icons/md";
-import { VscChromeMinimize, VscChromeMaximize, VscChromeRestore, VscChromeClose } from "react-icons/vsc";
+import {
+  VscChromeClose,
+  VscChromeMaximize,
+  VscChromeMinimize,
+  VscChromeRestore,
+} from "react-icons/vsc";
 import packageJson from "@/../package.json";
 import QuitConfirmDialog from "@/components/dialog/app/QuitConfirmDialog";
 import { Button } from "@/components/ui/button";

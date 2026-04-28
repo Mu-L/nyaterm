@@ -7,8 +7,8 @@ import { SelectItem } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useApp } from "@/context/AppContext";
 import { useSettingsDraft } from "@/context/SettingsDraftContext";
-import { getErrorMessage } from "@/lib/errors";
 import {
+  type CloudSyncValidationCode,
   DEFAULT_CLOUD_SYNC_STATUS,
   formatCloudProvider,
   formatTimestamp,
@@ -17,8 +17,8 @@ import {
   secretPlaceholder,
   shortValue,
   sortRemoteBackups,
-  type CloudSyncValidationCode,
 } from "@/lib/cloudSync";
+import { getErrorMessage } from "@/lib/errors";
 import { invoke } from "@/lib/invoke";
 import type {
   CloudConflictPreview,
@@ -84,10 +84,8 @@ export function SyncBackupTab({ onNavigateSecurity }: SyncBackupTabProps) {
   const backupSectionDisabled = formDisabled || !settings.enabled;
   const canUseCommittedProvider =
     hasCommittedMasterPassword && committedValidationErrors.length === 0;
-  const canRunConfigDependentActions =
-    canUseCommittedProvider && !isDirty && !isSaving;
-  const canRunEnabledActions =
-    canRunConfigDependentActions && committedCloudSync.enabled;
+  const canRunConfigDependentActions = canUseCommittedProvider && !isDirty && !isSaving;
+  const canRunEnabledActions = canRunConfigDependentActions && committedCloudSync.enabled;
   const isBusy = loading || isSaving || runningAction !== null;
 
   const updateCloudSync = useCallback(
@@ -530,7 +528,10 @@ export function SyncBackupTab({ onNavigateSecurity }: SyncBackupTabProps) {
               label={t("settings.s3SessionToken")}
               type="password"
               value={secretInputValue(settings.s3.session_token)}
-              placeholder={secretPlaceholder(settings.s3.session_token, t("settings.optionalField"))}
+              placeholder={secretPlaceholder(
+                settings.s3.session_token,
+                t("settings.optionalField"),
+              )}
               disabled={formDisabled}
               onChange={(event) =>
                 updateCloudSync({

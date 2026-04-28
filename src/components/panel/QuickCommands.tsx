@@ -382,15 +382,11 @@ function QuickCommands({ onSend, onSendToAll }: QuickCommandsProps) {
                       </Button>
                     </PopoverTrigger>
                   </TooltipTrigger>
-                  <TooltipContent side="top">
-                    {t("ai.generateCommand")}
-                  </TooltipContent>
+                  <TooltipContent side="top">{t("ai.generateCommand")}</TooltipContent>
                 </Tooltip>
                 <PopoverContent align="end" className="w-80 p-3">
                   <div className="space-y-2">
-                    <div className="text-xs font-medium">
-                      {t("ai.generateCommand")}
-                    </div>
+                    <div className="text-xs font-medium">{t("ai.generateCommand")}</div>
                     <Input
                       value={aiPrompt}
                       onChange={(event) => setAiPrompt(event.target.value)}

@@ -121,19 +121,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       setTerminalTheme,
       themeNames: themeList,
     }),
-    [
-      current,
-      themeName,
-      setTheme,
-      resolvedTerminalTheme,
-      terminalThemeName,
-      setTerminalTheme,
-    ],
+    [current, themeName, setTheme, resolvedTerminalTheme, terminalThemeName, setTerminalTheme],
   );
 
-  return (
-    <ThemeContext.Provider value={contextValue}>{children}</ThemeContext.Provider>
-  );
+  return <ThemeContext.Provider value={contextValue}>{children}</ThemeContext.Provider>;
 }
 
 /** Hook to access ThemeContext. Throws if used outside ThemeProvider. */

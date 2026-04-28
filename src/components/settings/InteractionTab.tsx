@@ -7,10 +7,10 @@ import { MOD } from "@/hooks/useGlobalShortcuts";
 import {
   MAX_COMMAND_SUGGESTION_MAX_CHARS,
   MAX_COMMAND_SUGGESTION_MIN_CHARS,
-  MIN_COMMAND_SUGGESTION_MIN_CHARS,
   MIN_COMMAND_SUGGESTION_MAX_CHARS,
-  normalizeCommandSuggestionMinChars,
+  MIN_COMMAND_SUGGESTION_MIN_CHARS,
   normalizeCommandSuggestionMaxChars,
+  normalizeCommandSuggestionMinChars,
 } from "@/lib/interactionSettings";
 import {
   SettingInput,

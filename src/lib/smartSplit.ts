@@ -21,8 +21,11 @@ function buildBalancedTree(
   }
 
   const mid = Math.ceil(tabIds.length / 2);
-  const nextDirection: PaneSplitDirection =
-    alternate ? (direction === "horizontal" ? "vertical" : "horizontal") : direction;
+  const nextDirection: PaneSplitDirection = alternate
+    ? direction === "horizontal"
+      ? "vertical"
+      : "horizontal"
+    : direction;
 
   return {
     id: createTerminalWindowId("window-split"),

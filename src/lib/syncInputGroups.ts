@@ -20,7 +20,10 @@ const GROUP_COLORS = [
 
 export function nextGroupColor(existing: SyncGroup[]): string {
   const usedColors = new Set(existing.map((g) => g.color));
-  return GROUP_COLORS.find((c) => !usedColors.has(c)) ?? GROUP_COLORS[existing.length % GROUP_COLORS.length];
+  return (
+    GROUP_COLORS.find((c) => !usedColors.has(c)) ??
+    GROUP_COLORS[existing.length % GROUP_COLORS.length]
+  );
 }
 
 export function createSyncGroup(name: string, color: string): SyncGroup {
@@ -53,7 +56,8 @@ export function toggleGroupEnabled(group: SyncGroup): SyncGroup {
 }
 
 export function pauseSessionInGroup(group: SyncGroup, sessionId: string): SyncGroup {
-  if (!group.sessionIds.includes(sessionId) || group.pausedSessionIds.includes(sessionId)) return group;
+  if (!group.sessionIds.includes(sessionId) || group.pausedSessionIds.includes(sessionId))
+    return group;
   return { ...group, pausedSessionIds: [...group.pausedSessionIds, sessionId] };
 }
 
@@ -91,9 +95,7 @@ export function isSessionSynced(sessionId: string, groups: SyncGroup[]): boolean
 
 /** Return the first enabled group a session actively belongs to (not paused). */
 export function getActiveGroupForSession(sessionId: string, groups: SyncGroup[]): SyncGroup | null {
-  return groups.find(
-    (g) => g.enabled && g.sessionIds.includes(sessionId),
-  ) ?? null;
+  return groups.find((g) => g.enabled && g.sessionIds.includes(sessionId)) ?? null;
 }
 
 /** Return all groups a session belongs to. */

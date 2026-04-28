@@ -103,7 +103,8 @@ function TransferRow({
   onDelete: (id: string) => void;
 }) {
   const { t } = useTranslation();
-  const DirIcon = item.kind === "directory" ? MdFolder : item.direction === "upload" ? MdUpload : MdDownload;
+  const DirIcon =
+    item.kind === "directory" ? MdFolder : item.direction === "upload" ? MdUpload : MdDownload;
   const dirColor = item.direction === "upload" ? "#4ade80" : "#60a5fa";
   const progress =
     item.kind === "directory"
@@ -259,7 +260,10 @@ function TransferRow({
         {item.direction === "download" && (
           <>
             <ContextMenuSeparator />
-            <ContextMenuItem onClick={() => openPath(openTargetDirectory)} disabled={!openTargetDirectory}>
+            <ContextMenuItem
+              onClick={() => openPath(openTargetDirectory)}
+              disabled={!openTargetDirectory}
+            >
               <MdFolder className="mr-2 text-[0.875rem]" />
               {t("fileTransfer.openTargetDirectory")}
             </ContextMenuItem>

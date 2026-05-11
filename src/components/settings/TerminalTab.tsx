@@ -31,6 +31,8 @@ export function TerminalTab() {
 
   const builtinRules = useMemo(() => getBuiltinRules(isDark), [isDark]);
   const userRules = appSettings.terminal.keyword_highlights ?? [];
+  const keywordHighlightingEnabled = appSettings.terminal.keyword_highlights_enabled ?? false;
+  const builtinRuleSettings = appSettings.terminal.keyword_highlight_builtin_rules ?? {};
   const actionLinksEnabled = appSettings.terminal.action_links_enabled ?? false;
   const actionLinkMatchers =
     appSettings.terminal.action_links_matchers ?? DEFAULT_ACTION_LINK_MATCHERS;
@@ -60,6 +62,18 @@ export function TerminalTab() {
 
   function patchRule(id: string, patch: Partial<KeywordHighlightRule>) {
     updateRules(userRules.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  }
+
+  function patchBuiltinRule(id: string, enabled: boolean) {
+    updateAppSettings((prev) => ({
+      terminal: {
+        ...prev.terminal,
+        keyword_highlight_builtin_rules: {
+          ...(prev.terminal.keyword_highlight_builtin_rules ?? {}),
+          [id]: enabled,
+        },
+      },
+    }));
   }
 
   const ringClass = isDark ? "ring-white/20" : "ring-black/20";
@@ -129,7 +143,7 @@ export function TerminalTab() {
 
         <SettingRow label={t("settings.showRemoteStats")} desc={t("settings.showRemoteStatsDesc")}>
           <SettingSwitch
-            checked={appSettings.ui.show_remote_stats ?? false}
+            checked={appSettings.ui.show_remote_stats ?? true}
             onChange={(v) => updateUi({ show_remote_stats: v })}
           />
         </SettingRow>
@@ -230,7 +244,7 @@ export function TerminalTab() {
           desc={t("settings.keywordHighlightingExperimentalDesc")}
         >
           <SettingSwitch
-            checked={appSettings.terminal.keyword_highlights_enabled ?? false}
+            checked={keywordHighlightingEnabled}
             onChange={(v) =>
               updateAppSettings({
                 terminal: { ...appSettings.terminal, keyword_highlights_enabled: v },
@@ -244,7 +258,7 @@ export function TerminalTab() {
           desc={t("settings.keywordHighlightWrappedLinesDesc")}
         >
           <SettingSwitch
-            disabled={!appSettings.terminal.keyword_highlights_enabled}
+            disabled={!keywordHighlightingEnabled}
             checked={appSettings.terminal.keyword_highlights_across_wrapped_lines ?? false}
             onChange={(v) =>
               updateAppSettings({
@@ -270,17 +284,22 @@ export function TerminalTab() {
             {builtinRules.map((rule) => (
               <div
                 key={rule.id}
-                className="flex min-w-0 items-center gap-2 rounded-lg border border-border/70 bg-background/70 px-3 py-2.5"
+                className="flex min-w-0 items-center justify-between gap-3 rounded-lg border border-border/70 bg-background/70 px-3 py-2.5"
               >
-                <span
-                  className={`h-3 w-3 shrink-0 rounded-full ring-1 ring-inset ${ringClass}`}
-                  style={{ backgroundColor: rule.color }}
+                <div className="flex min-w-0 items-center gap-2">
+                  <span
+                    className={`h-3 w-3 shrink-0 rounded-full ring-1 ring-inset ${ringClass}`}
+                    style={{ backgroundColor: rule.color }}
+                  />
+                  <span className="min-w-0 truncate text-sm text-muted-foreground">
+                    {rule.name}
+                  </span>
+                </div>
+                <Switch
+                  checked={builtinRuleSettings[rule.id] ?? true}
+                  disabled={!keywordHighlightingEnabled}
+                  onCheckedChange={(v) => patchBuiltinRule(rule.id, v)}
                 />
-                <span className="w-20 shrink-0 text-sm text-muted-foreground">{rule.name}</span>
-                <span className="flex-1 truncate font-mono text-xs text-muted-foreground/70">
-                  {rule.patterns.slice(0, 3).join(", ")}
-                  {rule.patterns.length > 3 && ` +${rule.patterns.length - 3}`}
-                </span>
               </div>
             ))}
           </div>
@@ -288,7 +307,7 @@ export function TerminalTab() {
 
         <div
           className={`space-y-3 transition-opacity ${
-            appSettings.terminal.keyword_highlights_enabled ? "" : "pointer-events-none opacity-50"
+            keywordHighlightingEnabled ? "" : "pointer-events-none opacity-50"
           }`}
         >
           <div className="flex items-center justify-between">

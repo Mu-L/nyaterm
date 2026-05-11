@@ -28,7 +28,11 @@ export function useKeywordHighlighter(
   // User rules carry two color fields; pick the right one for the current theme
   // so the highlighter engine always receives a single resolved color.
   const mergedRules = useMemo(() => {
-    const builtin = getBuiltinRules(isDark);
+    const builtinRuleSettings = terminalSettings.keyword_highlight_builtin_rules ?? {};
+    const builtin = getBuiltinRules(isDark).map((rule) => ({
+      ...rule,
+      enabled: builtinRuleSettings[rule.id] ?? true,
+    }));
     const user = (terminalSettings.keyword_highlights ?? []).map((r: KeywordHighlightRule) => ({
       id: r.id,
       name: r.name,
@@ -38,7 +42,11 @@ export function useKeywordHighlighter(
     }));
     // User rules go first so they match and occupy string positions before built-ins
     return [...user, ...builtin];
-  }, [isDark, terminalSettings.keyword_highlights]);
+  }, [
+    isDark,
+    terminalSettings.keyword_highlight_builtin_rules,
+    terminalSettings.keyword_highlights,
+  ]);
 
   // Create the highlighter once per terminal session.
   // Relies on XTerminal's terminal-creation effect running first (same dep).

@@ -1,5 +1,6 @@
 use super::super::{default_false, default_true};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct KeywordHighlightRule {
@@ -57,6 +58,8 @@ pub struct TerminalSettings {
     #[serde(default = "default_false")]
     pub keyword_highlights_across_wrapped_lines: bool,
     #[serde(default)]
+    pub keyword_highlight_builtin_rules: BTreeMap<String, bool>,
+    #[serde(default)]
     pub keyword_highlights: Vec<KeywordHighlightRule>,
     #[serde(default = "default_false")]
     pub action_links_enabled: bool,
@@ -83,6 +86,7 @@ impl Default for TerminalSettings {
             hardware_acceleration: false,
             keyword_highlights_enabled: false,
             keyword_highlights_across_wrapped_lines: false,
+            keyword_highlight_builtin_rules: BTreeMap::new(),
             keyword_highlights: Vec::new(),
             action_links_enabled: false,
             action_links_matchers: ActionLinksMatcherSettings::default(),

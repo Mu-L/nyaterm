@@ -207,6 +207,7 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
     hardware_acceleration: false,
     keyword_highlights_enabled: false,
     keyword_highlights_across_wrapped_lines: false,
+    keyword_highlight_builtin_rules: {},
     keyword_highlights: [],
     action_links_enabled: false,
     action_links_matchers: {
@@ -260,7 +261,7 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
     serial_send_height: 120,
     zoom_level: 1.0,
     language: "en",
-    show_remote_stats: false,
+    show_remote_stats: true,
     remote_stats_interval: 3,
     saved_connections_sort_mode: "default",
     recent_connection_ids: [],

@@ -456,12 +456,15 @@ export interface ActionLinksMatcherSettings {
   host_port: boolean;
 }
 
+export type KeywordHighlightBuiltinRuleSettings = Record<string, boolean>;
+
 export interface TerminalSettings {
   scrollback_lines: number;
   keep_alive_interval: number;
   hardware_acceleration: boolean;
   keyword_highlights_enabled: boolean;
   keyword_highlights_across_wrapped_lines: boolean;
+  keyword_highlight_builtin_rules: KeywordHighlightBuiltinRuleSettings;
   keyword_highlights: KeywordHighlightRule[];
   action_links_enabled: boolean;
   action_links_matchers: ActionLinksMatcherSettings;

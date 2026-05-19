@@ -130,8 +130,17 @@ export function AiGeneralTab() {
             value={ai.agent_step_timeout_ms ?? 30000}
             onChange={(agent_step_timeout_ms) => update({ agent_step_timeout_ms })}
           />
+          <SettingNumberInput
+            label={t("ai.terminalOutputLines")}
+            min={0}
+            max={100}
+            step={1}
+            value={ai.terminal_output_lines}
+            onChange={(terminal_output_lines) => update({ terminal_output_lines })}
+          />
         </SettingFieldGrid>
         <div className="text-xs text-muted-foreground">{t("ai.agentMaxStepsDesc")}</div>
+        <div className="text-xs text-muted-foreground">{t("ai.terminalOutputLinesDesc")}</div>
       </SettingSection>
     </div>
   );

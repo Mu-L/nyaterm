@@ -567,6 +567,7 @@ export interface AISettings {
   max_ai_file_size_bytes: number;
   max_agent_steps?: number | null;
   agent_step_timeout_ms?: number | null;
+  terminal_output_lines: number;
 }
 
 export interface AIContext {
@@ -673,6 +674,10 @@ export interface AgentStepPayload {
   status: AgentStepStatus;
   error?: string | null;
 }
+
+export type AiCaptureEvent =
+  | { type: "commandStart"; command: string; stepIndex: number }
+  | { type: "commandEnd"; output: string; exitCode: number | null; durationMs: number; truncated: boolean };
 
 export interface TunnelConfig {
   id: string;

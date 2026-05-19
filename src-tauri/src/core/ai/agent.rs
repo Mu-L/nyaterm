@@ -19,9 +19,9 @@ use super::prompt::{build_agent_prompt, build_observation_message, AGENT_SYSTEM_
 use super::redaction::{redact_context, redact_sensitive_text};
 use super::stream::{active_streams, emit_stream_event, is_cancelled};
 use super::types::{
-    uuid, now_rfc3339, AgentActionKind, AgentLlmResponse, AgentStepAction, AgentStepPayload,
-    AgentStepStatus, AiChatRequest, AiMessage, AiMessageRole, AiStreamEventPayload,
-    CommandObservation,
+    uuid, now_rfc3339, AiCaptureEvent, AgentActionKind, AgentLlmResponse, AgentStepAction,
+    AgentStepPayload, AgentStepStatus, AiChatRequest, AiMessage, AiMessageRole,
+    AiStreamEventPayload, CommandObservation,
 };
 
 // ---------------------------------------------------------------------------
@@ -112,12 +112,17 @@ fn emit_agent_error(app: &AppHandle, stream_id: &str, session_id: &str, error: &
 /// unique boundary markers), then captures the output from the PTY stream.
 /// This works regardless of the user's current context: nested SSH, containers,
 /// `sudo su`, etc.
+///
+/// Emits structured `AiCaptureEvent` payloads to the frontend so the terminal
+/// can render a styled inline block showing the command and its output.
 async fn execute_command_on_session(
     app: &AppHandle,
     session_manager: &SessionManager,
     terminal_session_id: &str,
     command: &str,
     timeout_ms: u64,
+    step_index: u16,
+    terminal_output_lines: u16,
 ) -> AppResult<CommandObservation> {
     tracing::debug!(
         terminal_session_id = %terminal_session_id,
@@ -131,7 +136,13 @@ async fn execute_command_on_session(
     let (tx, rx) = oneshot::channel();
 
     let capture_event = format!("ai-capture-{terminal_session_id}");
-    let _ = app.emit(&capture_event, "start");
+    let _ = app.emit(
+        &capture_event,
+        AiCaptureEvent::CommandStart {
+            command: command.to_string(),
+            step_index,
+        },
+    );
 
     session_manager
         .send_command(
@@ -187,8 +198,35 @@ async fn execute_command_on_session(
         }
     };
 
-    let _ = app.emit(&capture_event, "end");
+    let (terminal_output, truncated) = match &result {
+        Ok(obs) => truncate_output_for_terminal(&obs.output, terminal_output_lines),
+        Err(e) => (e.to_string(), false),
+    };
+
+    let _ = app.emit(
+        &capture_event,
+        AiCaptureEvent::CommandEnd {
+            output: terminal_output,
+            exit_code: result.as_ref().ok().and_then(|o| o.exit_code),
+            duration_ms: result.as_ref().map(|o| o.duration_ms).unwrap_or(0),
+            truncated,
+        },
+    );
+
     result
+}
+
+fn truncate_output_for_terminal(output: &str, max_lines: u16) -> (String, bool) {
+    if max_lines == 0 {
+        return (String::new(), !output.is_empty());
+    }
+    let lines: Vec<&str> = output.lines().collect();
+    if lines.len() <= max_lines as usize {
+        (output.to_string(), false)
+    } else {
+        let truncated_output = lines[..max_lines as usize].join("\n");
+        (truncated_output, true)
+    }
 }
 
 fn strip_ansi_escapes(input: &str) -> String {
@@ -577,6 +615,8 @@ pub(super) async fn run_agent_stream(
                     &terminal_session_id,
                     &command,
                     step_timeout,
+                    step_index,
+                    settings.terminal_output_lines,
                 )
                 .await
                 {

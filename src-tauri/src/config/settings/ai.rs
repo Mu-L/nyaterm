@@ -124,6 +124,8 @@ pub struct AiSettings {
     pub max_agent_steps: Option<u16>,
     #[serde(default)]
     pub agent_step_timeout_ms: Option<u64>,
+    #[serde(default = "default_terminal_output_lines")]
+    pub terminal_output_lines: u16,
 }
 
 fn default_schema_version() -> u32 {
@@ -148,6 +150,10 @@ fn default_mode() -> AiMode {
 
 fn default_model_source() -> AiModelSource {
     AiModelSource::RustGenai
+}
+
+fn default_terminal_output_lines() -> u16 {
+    10
 }
 
 fn default_max_ai_file_size_bytes() -> u64 {
@@ -383,6 +389,7 @@ impl Default for AiSettings {
             max_ai_file_size_bytes: default_max_ai_file_size_bytes(),
             max_agent_steps: Some(10),
             agent_step_timeout_ms: Some(30_000),
+            terminal_output_lines: default_terminal_output_lines(),
         }
     }
 }

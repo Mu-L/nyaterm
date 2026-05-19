@@ -17,6 +17,8 @@ import { useShellIntegration } from "@/hooks/useShellIntegration";
 import { useTerminalSearch } from "@/hooks/useTerminalSearch";
 import { useTerminalSettings } from "@/hooks/useTerminalSettings";
 import { emitAIErrorDetected } from "@/lib/aiEvents";
+import { renderAiCommandStart, renderAiCommandEnd } from "@/lib/aiTerminalRenderer";
+import type { AiCaptureEvent } from "@/types/global";
 import { resolveShortcutKeys } from "@/hooks/useShortcutMap";
 import { readClipboardText } from "@/lib/clipboard";
 import { invoke } from "@/lib/invoke";
@@ -245,7 +247,6 @@ export default function XTerminal({
   const [performanceMode, setPerformanceMode] = useState<PerformanceMode>("normal");
   const [performanceOverlay, setPerformanceOverlay] = useState<PerformanceOverlayState>(null);
   const [skippedOutputChars, setSkippedOutputChars] = useState(0);
-  const [aiCapturing, setAiCapturing] = useState(false);
   const aiCapturingRef = useRef(false);
 
   const { terminalTheme } = useTheme();
@@ -1078,10 +1079,19 @@ export default function XTerminal({
       }
       focusUnlisten = nextFocusUnlisten;
 
-      const nextCaptureUnlisten = await listen<string>(`ai-capture-${sessionId}`, (event) => {
-        const capturing = event.payload === "start";
-        aiCapturingRef.current = capturing;
-        setAiCapturing(capturing);
+      const nextCaptureUnlisten = await listen<AiCaptureEvent>(`ai-capture-${sessionId}`, (event) => {
+        const payload = event.payload;
+        if (payload.type === "commandStart") {
+          aiCapturingRef.current = true;
+          if (isTerminalAlive()) {
+            terminal.write(renderAiCommandStart(payload));
+          }
+        } else if (payload.type === "commandEnd") {
+          aiCapturingRef.current = false;
+          if (isTerminalAlive()) {
+            terminal.write(renderAiCommandEnd(payload));
+          }
+        }
       });
       if (disposed) {
         nextCaptureUnlisten();
@@ -1495,24 +1505,6 @@ export default function XTerminal({
 
         {syncOverlay && <SyncActionOverlay overlay={syncOverlay} />}
 
-        {aiCapturing && (
-          <div className="absolute inset-x-3 top-3 z-20 flex justify-end pointer-events-none">
-            <div
-              className="flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs shadow-lg"
-              style={{
-                borderColor: "var(--df-primary)",
-                backgroundColor: "color-mix(in srgb, var(--df-bg-panel) 95%, var(--df-primary))",
-                color: "var(--df-text)",
-              }}
-            >
-              <span
-                className="inline-block h-2 w-2 rounded-full animate-pulse"
-                style={{ backgroundColor: "var(--df-primary)" }}
-              />
-              <span>{t("terminal.aiExecuting")}</span>
-            </div>
-          </div>
-        )}
 
         <TerminalSearchBar
           show={showSearchBar}

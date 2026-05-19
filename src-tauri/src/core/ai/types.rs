@@ -304,6 +304,27 @@ pub struct AiModelDiscovery {
 }
 
 // ---------------------------------------------------------------------------
+// AI capture terminal display events
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum AiCaptureEvent {
+    #[serde(rename_all = "camelCase")]
+    CommandStart {
+        command: String,
+        step_index: u16,
+    },
+    #[serde(rename_all = "camelCase")]
+    CommandEnd {
+        output: String,
+        exit_code: Option<i32>,
+        duration_ms: u64,
+        truncated: bool,
+    },
+}
+
+// ---------------------------------------------------------------------------
 // Default value functions for serde
 // ---------------------------------------------------------------------------
 

@@ -29,6 +29,7 @@ import {
   MdSearch,
   MdSend,
   MdStop,
+  MdTerminal,
 } from "react-icons/md";
 import ReactMarkdown from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";

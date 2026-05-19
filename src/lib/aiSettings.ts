@@ -562,6 +562,7 @@ export const DEFAULT_AI_SETTINGS: AISettings = {
   max_ai_file_size_bytes: 1048576,
   max_agent_steps: 10,
   agent_step_timeout_ms: 30000,
+  terminal_output_lines: 10,
 };
 
 export function getEnabledAIModels(settings: AISettings) {

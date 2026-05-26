@@ -224,6 +224,19 @@ export function TransferProvider({ children }: { children: ReactNode }) {
   const cancelTransfer = useCallback(async (id: string) => {
     try {
       await invoke("cancel_transfer", { transferId: id });
+      setTransferMap((prev) => {
+        const existing = prev.get(id);
+        if (!existing || existing.status === "completed" || existing.status === "error") {
+          return prev;
+        }
+        const next = new Map(prev);
+        next.set(id, {
+          ...existing,
+          status: "cancelled",
+          error: undefined,
+        });
+        return next;
+      });
     } catch (error) {
       toast.error(String(error));
     }

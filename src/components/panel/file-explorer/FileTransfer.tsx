@@ -103,9 +103,15 @@ function TransferRow({
   const DirIcon =
     item.kind === "directory" ? MdFolder : item.direction === "upload" ? MdUpload : MdDownload;
   const dirColor = item.direction === "upload" ? "#4ade80" : "#60a5fa";
+  const hasByteProgress = item.totalSize > 0;
+  const byteProgress = hasByteProgress
+    ? Math.min(100, Math.round((item.bytesTransferred / item.totalSize) * 100))
+    : 0;
   const progress =
     item.kind === "directory"
-      ? item.itemCountTotal && item.itemCountTotal > 0
+      ? hasByteProgress
+        ? byteProgress
+        : item.itemCountTotal && item.itemCountTotal > 0
         ? Math.min(100, Math.round(((item.itemCountCompleted ?? 0) / item.itemCountTotal) * 100))
         : item.status === "completed"
           ? 100
@@ -214,7 +220,9 @@ function TransferRow({
           </div>
 
           {(item.status === "transferring" || item.status === "paused") &&
-            (item.kind === "directory" ? (item.itemCountTotal ?? 0) > 0 : item.totalSize > 0) && (
+            (item.kind === "directory"
+              ? hasByteProgress || (item.itemCountTotal ?? 0) > 0
+              : item.totalSize > 0) && (
               <div
                 className="mt-1 h-1 rounded-full overflow-hidden"
                 style={{ backgroundColor: "var(--df-border)" }}

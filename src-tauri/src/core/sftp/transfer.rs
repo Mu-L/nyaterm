@@ -124,15 +124,37 @@ impl TransferController {
     }
 
     pub(crate) fn update_progress(&self, bytes_transferred: u64, total_size: u64) {
-        let mut runtime = self.runtime.lock().unwrap();
-        runtime.bytes_transferred = bytes_transferred;
-        runtime.total_size = total_size;
+        let (parent_id, delta) = {
+            let mut runtime = self.runtime.lock().unwrap();
+            let delta = bytes_transferred.saturating_sub(runtime.bytes_transferred);
+            runtime.bytes_transferred = bytes_transferred;
+            runtime.total_size = total_size;
+            (runtime.parent_id.clone(), delta)
+        };
+
+        if delta == 0 {
+            return;
+        }
+
+        if let Some(parent_id) = parent_id {
+            if let Some(parent) = find_transfer(&parent_id) {
+                parent.add_bytes_transferred(delta);
+            }
+        }
     }
 
     pub(crate) fn update_item_progress(&self, completed: u64, total: u64) {
         let mut runtime = self.runtime.lock().unwrap();
         runtime.item_count_completed = Some(completed);
         runtime.item_count_total = Some(total);
+    }
+
+    fn add_bytes_transferred(&self, delta: u64) {
+        let mut runtime = self.runtime.lock().unwrap();
+        runtime.bytes_transferred = runtime.bytes_transferred.saturating_add(delta);
+        if runtime.total_size > 0 {
+            runtime.bytes_transferred = runtime.bytes_transferred.min(runtime.total_size);
+        }
     }
 
     pub(crate) fn build_event(
@@ -326,8 +348,9 @@ pub(crate) fn create_directory_transfer_controller(
     local_path: &str,
     direction: &str,
     item_count_total: u64,
+    total_size: u64,
 ) -> Arc<TransferController> {
-    Arc::new(TransferController::new_with_kind(
+    let controller = Arc::new(TransferController::new_with_kind(
         uuid::Uuid::new_v4().to_string(),
         session_id.to_string(),
         display_name,
@@ -338,7 +361,9 @@ pub(crate) fn create_directory_transfer_controller(
         None,
         Some(item_count_total),
         Some(0),
-    ))
+    ));
+    controller.update_progress(0, total_size);
+    controller
 }
 
 pub(crate) fn create_child_file_transfer_controller(
@@ -384,6 +409,15 @@ pub(crate) async fn wait_for_transfer_chain(
         wait_for_transfer_ready(parent).await?;
     }
     wait_for_transfer_ready(controller).await
+}
+
+pub(crate) fn emit_parent_progress(
+    app: &tauri::AppHandle,
+    parent_controller: Option<&Arc<TransferController>>,
+) {
+    if let Some(parent) = parent_controller {
+        let _ = app.emit("transfer-event", &parent.build_event("progress", 0, None));
+    }
 }
 
 pub(crate) async fn cleanup_cancelled_download(local_path: &str) {
@@ -462,8 +496,19 @@ pub(crate) fn resolve_local_path(local_path: &str, strategy: &str) -> Option<Str
     }
 }
 
-pub(crate) async fn count_local_files(local_path: &str) -> AppResult<u64> {
-    let mut count = 0;
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct LocalDirectoryStats {
+    pub(crate) file_count: u64,
+    pub(crate) total_size: u64,
+}
+
+pub(crate) async fn collect_local_directory_stats(
+    local_path: &str,
+) -> AppResult<LocalDirectoryStats> {
+    let mut stats = LocalDirectoryStats {
+        file_count: 0,
+        total_size: 0,
+    };
     let mut stack = vec![PathBuf::from(local_path)];
 
     while let Some(path) = stack.pop() {
@@ -483,10 +528,14 @@ pub(crate) async fn count_local_files(local_path: &str) -> AppResult<u64> {
             if file_type.is_dir() {
                 stack.push(entry.path());
             } else if file_type.is_file() {
-                count += 1;
+                let metadata = entry.metadata().await.map_err(|e| {
+                    AppError::Channel(format!("Failed to read file metadata: {}", e))
+                })?;
+                stats.file_count = stats.file_count.saturating_add(1);
+                stats.total_size = stats.total_size.saturating_add(metadata.len());
             }
         }
     }
 
-    Ok(count)
+    Ok(stats)
 }

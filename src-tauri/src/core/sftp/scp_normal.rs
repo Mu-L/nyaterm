@@ -133,7 +133,10 @@ impl ScpNormalBackend {
                 )
                 .await?;
                 *completed_count += 1;
-                directory_controller.update_item_progress(*completed_count, *completed_count);
+                let total = directory_controller
+                    .item_count_total()
+                    .unwrap_or(*completed_count);
+                directory_controller.update_item_progress(*completed_count, total);
                 let _ = app.emit(
                     "transfer-event",
                     &directory_controller.build_event("progress", 0, None),
@@ -215,7 +218,10 @@ impl ScpNormalBackend {
                 )
                 .await?;
                 *completed_count += 1;
-                directory_controller.update_item_progress(*completed_count, *completed_count);
+                let total = directory_controller
+                    .item_count_total()
+                    .unwrap_or(*completed_count);
+                directory_controller.update_item_progress(*completed_count, total);
                 let _ = app.emit(
                     "transfer-event",
                     &directory_controller.build_event("progress", 0, None),
@@ -447,6 +453,7 @@ async fn download_file_inner(
 
                     if last_progress.elapsed() >= PROGRESS_INTERVAL {
                         last_progress = Instant::now();
+                        emit_parent_progress(app, parent_controller.as_ref());
                         let _ = app.emit(
                             "transfer-event",
                             &controller.build_event("progress", 0, None),
@@ -586,6 +593,7 @@ async fn upload_file_inner(
 
             if last_progress.elapsed() >= PROGRESS_INTERVAL {
                 last_progress = Instant::now();
+                emit_parent_progress(app, parent_controller.as_ref());
                 let _ = app.emit(
                     "transfer-event",
                     &controller.build_event("progress", total_size, None),
@@ -1047,6 +1055,7 @@ impl RemoteFs for ScpNormalBackend {
             local_path,
             "download",
             total_files,
+            0,
         );
         register_transfer(directory_controller.clone());
         let _ = app.emit(
@@ -1102,14 +1111,15 @@ impl RemoteFs for ScpNormalBackend {
         local_path: &str,
         remote_path: &str,
     ) -> AppResult<()> {
-        let total_files = count_local_files(local_path).await?;
+        let local_stats = collect_local_directory_stats(local_path).await?;
         let directory_controller = create_directory_transfer_controller(
             session_id,
             file_name_from_path(local_path),
             remote_path,
             local_path,
             "upload",
-            total_files,
+            local_stats.file_count,
+            local_stats.total_size,
         );
         register_transfer(directory_controller.clone());
         let _ = app.emit(
@@ -1131,7 +1141,9 @@ impl RemoteFs for ScpNormalBackend {
 
         match result {
             Ok(()) => {
-                directory_controller.update_item_progress(completed_count, total_files);
+                directory_controller
+                    .update_progress(local_stats.total_size, local_stats.total_size);
+                directory_controller.update_item_progress(completed_count, local_stats.file_count);
                 let _ = app.emit(
                     "transfer-event",
                     &directory_controller.build_event("completed", 0, None),

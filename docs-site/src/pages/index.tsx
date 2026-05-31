@@ -810,7 +810,7 @@ export default function Home(): React.ReactElement {
       bullets: [
         translate({message: '支持 WebDAV 和 S3 兼容存储'}),
         translate({message: '使用主密码保护同步和备份数据'}),
-        translate({message: '支持 `.dgfy` 导入导出，并处理远端与本地版本冲突'}),
+        translate({message: '支持 `.nya` 导入导出，并处理远端与本地版本冲突'}),
       ],
       lightImage: '/img/home/sync-light.png',
       darkImage: '/img/home/sync-dark.png',

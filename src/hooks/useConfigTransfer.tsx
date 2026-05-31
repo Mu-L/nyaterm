@@ -34,7 +34,7 @@ export function useConfigTransfer() {
     if (!ensureMasterPassword()) return;
 
     const path = await saveFileDialog({
-      filters: [{ name: "NyaTerm Backup", extensions: ["dgfy"] }],
+      filters: [{ name: "NyaTerm Backup", extensions: ["nya"] }],
     });
 
     if (!path) return;
@@ -58,7 +58,7 @@ export function useConfigTransfer() {
 
     const path = await openFileDialog({
       multiple: false,
-      filters: [{ name: "NyaTerm Backup", extensions: ["dgfy"] }],
+      filters: [{ name: "NyaTerm Backup", extensions: ["nya"] }],
     });
 
     if (!path) return;

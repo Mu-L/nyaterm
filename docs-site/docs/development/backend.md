@@ -190,7 +190,7 @@ src-tauri/src/cmd/
 除了运行时会话能力，后端还负责几类数据管理命令：
 
 - `cmd::importer` — 导入 Xshell / MobaXterm / WindTerm 会话
-- `cmd::backup` — 导出 / 导入 NyaTerm 的加密 `.dgfy` 配置备份
+- `cmd::backup` — 导出 / 导入 NyaTerm 的加密 `.nya` 配置备份
 - `cmd::log` — 收集前端日志并导出诊断包
 - `cmd::app` — 应用级退出等控制命令
 

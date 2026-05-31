@@ -32,8 +32,8 @@ const IMPORT_SOURCES: ImportSource[] = [
     id: "nyaterm",
     name: "NyaTerm",
     icon: "/nyaterm.svg",
-    extensions: ["dgfy"],
-    hint: ".dgfy",
+    extensions: ["nya"],
+    hint: ".nya",
     type: "backup",
   },
   {

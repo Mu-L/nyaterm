@@ -260,8 +260,8 @@
   "使用主密码保护同步和备份数据": {
     "message": "Protect sync and backup data with a master password"
   },
-  "支持 `.dgfy` 导入导出，并处理远端与本地版本冲突": {
-    "message": "Supports `.dgfy` import/export and handles version conflicts between remote and local data"
+  "支持 `.nya` 导入导出，并处理远端与本地版本冲突": {
+    "message": "Supports `.nya` import/export and handles version conflicts between remote and local data"
   },
   "加载预览中": {
     "message": "Loading preview"

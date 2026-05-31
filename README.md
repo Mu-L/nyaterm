@@ -79,7 +79,7 @@ NyaTerm is built for people who move between servers, local commands, devices, a
 - **Workspace-first** — keep related terminals together with tabs, split panes, side panels, and child windows
 - **Remote operations in context** — browse SFTP files, follow terminal paths, run transfers, and edit remote files without leaving the session
 - **Security-aware workflows** — manage credentials, keys, known hosts, OTP, lock screen, and master-password protected storage
-- **Portable configuration** — import from existing tools, export encrypted `.dgfy` backups, and sync encrypted snapshots through WebDAV or S3-compatible storage
+- **Portable configuration** — import from existing tools, export encrypted `.nya` backups, and sync encrypted snapshots through WebDAV or S3-compatible storage
 - **AI where it is useful** — generate commands, inspect output, and run approved multi-step actions from the active terminal context
 
 ---
@@ -134,7 +134,7 @@ NyaTerm is built for people who move between servers, local commands, devices, a
 - Startup sync checks, debounced auto-push after supported local changes, and scheduled backup retention
 - Manual test / push / pull / backup actions, remote backup restore, and snapshot-level conflict resolution
 - Session import from Xshell, MobaXterm, and WindTerm
-- Full-app encrypted `.dgfy` import/export for portable NyaTerm configuration
+- Full-app encrypted `.nya` import/export for portable NyaTerm configuration
 
 ---
 

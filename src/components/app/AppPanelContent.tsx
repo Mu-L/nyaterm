@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import ResizeHandle from "@/components/layout/ResizeHandle";
 import ActiveSessions from "@/components/panel/ActiveSessions";
-import AIAssistantPanel from "@/components/panel/AIAssistantPanel";
+import AIAssistantPanel from "@/components/panel/ai/AIAssistantPanel";
 import CommandHistory from "@/components/panel/CommandHistory";
 import FileExplorer from "@/components/panel/file-explorer";
 import FileTransfer from "@/components/panel/file-explorer/FileTransfer";

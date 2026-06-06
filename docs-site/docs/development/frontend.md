@@ -147,7 +147,7 @@ const sessionId = await invoke<string>('create_ssh_session', {
 
 如果你改的是 AI 相关 UI，优先查看这些文件：
 
-- `src/components/panel/AIAssistantPanel.tsx` — 主 AI 面板、会话列表、消息渲染、命令卡片、执行审批
+- `src/components/panel/ai/AIAssistantPanel.tsx` — 主 AI 面板、会话列表、消息渲染、命令卡片、执行审批
 - `src/components/settings/AiTab.tsx` — AI 总开关、provider、模型、风险与 agent 配置
 - `src/lib/aiEvents.ts` — 从终端、文件、快捷命令等入口打开 AI Assistant 的事件桥
 - `src/lib/aiSettings.ts` — provider / model 默认值、风险规则和模型发现工具

@@ -1366,6 +1366,7 @@
     "memUsage": "内存占用"
   },
   "suggestions": {
+    "deleteHistory": "删除历史命令",
     "dismiss": "关闭",
     "execute": "执行",
     "fill": "填充",

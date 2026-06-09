@@ -1366,6 +1366,7 @@
     "memUsage": "Memory Usage"
   },
   "suggestions": {
+    "deleteHistory": "Delete history command",
     "dismiss": "dismiss",
     "execute": "execute",
     "fill": "fill",

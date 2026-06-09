@@ -21,6 +21,7 @@ import {
   createSessionPane,
   createWorkspaceTab,
   ensureActivePane,
+  findSessionPaneById,
   getFirstSessionPane,
   getNextPersistOrder,
   insertTabAfter,
@@ -69,7 +70,7 @@ interface AppContextType {
     connectionId?: string,
     extra?: Partial<Pick<Tab, "customName" | "tabColor">>,
     options?: { afterTabId?: string },
-  ) => string;
+  ) => PendingTabCreation;
   /** Swap the active pane's temporary sessionId for the real one and clear the connecting flag. */
   updateTabSession: (tabId: string, sessionId: string) => void;
   /** Mark the active pane in a tab as failed while keeping the tab visible. */
@@ -83,7 +84,9 @@ interface AppContextType {
     tabId: string,
     paneId: string,
     updates?: Partial<Pick<SessionPane, "name" | "type" | "connectionId">>,
-  ) => void;
+  ) => string | null;
+  hasTab: (tabId: string) => boolean;
+  hasPane: (tabId: string, paneId: string) => boolean;
   setActivePane: (tabId: string, paneId: string) => void;
   updateSplitRatio: (tabId: string, splitId: string, ratio: number) => void;
   splitPane: (
@@ -144,6 +147,15 @@ interface AppContextType {
   settingsLoaded: boolean;
   runtimeInfo: AppRuntimeInfo;
   runtimeInfoLoaded: boolean;
+}
+
+export interface PendingTabCreation {
+  tabId: string;
+  createRequestId: string;
+}
+
+function createSessionRequestId() {
+  return crypto.randomUUID();
 }
 
 export type TerminalAppSettings = Pick<
@@ -686,15 +698,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
       connectionId?: string,
       extra?: Partial<Pick<Tab, "customName" | "tabColor">>,
       options?: { afterTabId?: string },
-    ): string => {
-      const pane = createSessionPane(name, type, connectionId, { connecting: true });
+    ): PendingTabCreation => {
+      const createRequestId = createSessionRequestId();
+      const pane = createSessionPane(name, type, connectionId, {
+        connecting: true,
+        createRequestId,
+      });
       const newTab = createWorkspaceTab(pane, getNextPersistOrder(tabsRef.current), extra);
       const nextTabs = options?.afterTabId
         ? insertTabAfter(tabsRef.current, options.afterTabId, newTab)
         : [...tabsRef.current, newTab];
       void commitTabs(nextTabs);
       setActiveTabId(newTab.id);
-      return newTab.id;
+      return { tabId: newTab.id, createRequestId };
     },
     [commitTabs, setActiveTabId],
   );
@@ -712,6 +728,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 sessionId,
                 connecting: false,
                 connectError: undefined,
+                createRequestId: undefined,
               }),
             }
           : item,
@@ -733,6 +750,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
               root: updateSessionPane(item.root, paneId, {
                 connecting: false,
                 connectError: error,
+                createRequestId: undefined,
               }),
             }
           : item,
@@ -752,6 +770,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 sessionId,
                 connecting: false,
                 connectError: undefined,
+                createRequestId: undefined,
               }),
             }
           : tab,
@@ -770,6 +789,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
               root: updateSessionPane(tab.root, paneId, {
                 connecting: false,
                 connectError: error,
+                createRequestId: undefined,
               }),
             }
           : tab,
@@ -785,6 +805,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       paneId: string,
       updates?: Partial<Pick<SessionPane, "name" | "type" | "connectionId">>,
     ) => {
+      const createRequestId = createSessionRequestId();
       const nextTabs = tabsRef.current.map((tab) =>
         tab.id === tabId
           ? {
@@ -793,14 +814,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 ...updates,
                 connecting: true,
                 connectError: undefined,
+                createRequestId,
               }),
             }
           : tab,
       );
       void commitTabs(nextTabs);
+      return tabsRef.current.some((tab) => tab.id === tabId) ? createRequestId : null;
     },
     [commitTabs],
   );
+
+  const hasTab = useCallback((tabId: string) => {
+    return tabsRef.current.some((tab) => tab.id === tabId);
+  }, []);
+
+  const hasPane = useCallback((tabId: string, paneId: string) => {
+    const tab = tabsRef.current.find((item) => item.id === tabId);
+    return !!tab && !!findSessionPaneById(tab.root, paneId);
+  }, []);
 
   const setActivePane = useCallback(
     (tabId: string, paneId: string) => {
@@ -970,6 +1002,62 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await invoke("save_app_ui_settings", { ui: nextUi });
   }, []);
 
+  const closeStaleCreatedSession = useCallback(async (sessionId: string) => {
+    try {
+      await invoke("close_session", { sessionId });
+    } catch (error) {
+      logger.error({
+        domain: "session.lifecycle",
+        event: "session.stale_close_failed",
+        message: "Failed to close stale restored session",
+        ids: { session_id: sessionId },
+        error,
+      });
+    }
+  }, []);
+
+  const handleRestoredSessionCreated = useCallback(
+    async (tabId: string, paneId: string, sessionId: string) => {
+      if (!hasPane(tabId, paneId)) {
+        await closeStaleCreatedSession(sessionId);
+        return;
+      }
+      updatePaneSession(tabId, paneId, sessionId);
+    },
+    [closeStaleCreatedSession, hasPane, updatePaneSession],
+  );
+
+  const handleRestoredSessionFailed = useCallback(
+    (
+      tabId: string,
+      paneId: string,
+      sessionType: SessionType,
+      connectionId: string | undefined,
+      error: unknown,
+    ) => {
+      const errorMessage = getErrorMessage(error);
+      if (
+        errorMessage.toLowerCase().includes("session creation cancelled") ||
+        !hasPane(tabId, paneId)
+      ) {
+        return;
+      }
+      logger.error({
+        domain: "session.lifecycle",
+        event: "session.restore_failed",
+        message: `Restore ${sessionType} failed`,
+        ids: connectionId ? { connection_id: connectionId } : undefined,
+        data: {
+          session_type: sessionType,
+          pane_id: paneId,
+        },
+        error,
+      });
+      markPaneConnectionFailed(tabId, paneId, errorMessage);
+    },
+    [hasPane, markPaneConnectionFailed],
+  );
+
   // 5. Startup Restore Logic
   const hasRestored = useRef(false);
 
@@ -1003,90 +1091,73 @@ export function AppProvider({ children }: { children: ReactNode }) {
                   markPaneConnectionFailed(tab.id, pane.id, "Missing SSH connection id");
                   return;
                 }
-                invoke<string>("create_ssh_session", { connectionId: cid })
-                  .then((sessionId) => updatePaneSession(tab.id, pane.id, sessionId))
-                  .catch((e) => {
-                    logger.error({
-                      domain: "session.lifecycle",
-                      event: "session.restore_failed",
-                      message: "Restore SSH failed",
-                      ids: pane.connectionId ? { connection_id: pane.connectionId } : undefined,
-                      data: {
-                        session_type: "SSH",
-                        pane_id: pane.id,
-                      },
-                      error: e,
-                    });
-                    markPaneConnectionFailed(tab.id, pane.id, getErrorMessage(e));
-                  });
+                invoke<string>("create_ssh_session", {
+                  connectionId: cid,
+                  createRequestId: pane.createRequestId,
+                })
+                  .then((sessionId) =>
+                    handleRestoredSessionCreated(tab.id, pane.id, sessionId),
+                  )
+                  .catch((e) =>
+                    handleRestoredSessionFailed(tab.id, pane.id, "SSH", pane.connectionId, e),
+                  );
                 break;
               case "Local":
-                invoke<string>("create_local_session", { connectionId: cid || null })
-                  .then((sessionId) => updatePaneSession(tab.id, pane.id, sessionId))
-                  .catch((e) => {
-                    logger.error({
-                      domain: "session.lifecycle",
-                      event: "session.restore_failed",
-                      message: "Restore Local failed",
-                      data: {
-                        session_type: "Local",
-                        pane_id: pane.id,
-                      },
-                      error: e,
-                    });
-                    markPaneConnectionFailed(tab.id, pane.id, getErrorMessage(e));
-                  });
+                invoke<string>("create_local_session", {
+                  connectionId: cid || null,
+                  createRequestId: pane.createRequestId,
+                })
+                  .then((sessionId) =>
+                    handleRestoredSessionCreated(tab.id, pane.id, sessionId),
+                  )
+                  .catch((e) =>
+                    handleRestoredSessionFailed(tab.id, pane.id, "Local", pane.connectionId, e),
+                  );
                 break;
               case "Telnet":
                 if (!cid) {
                   markPaneConnectionFailed(tab.id, pane.id, "Missing Telnet connection id");
                   return;
                 }
-                invoke<string>("create_telnet_session", { connectionId: cid })
-                  .then((sessionId) => updatePaneSession(tab.id, pane.id, sessionId))
-                  .catch((e) => {
-                    logger.error({
-                      domain: "session.lifecycle",
-                      event: "session.restore_failed",
-                      message: "Restore Telnet failed",
-                      ids: pane.connectionId ? { connection_id: pane.connectionId } : undefined,
-                      data: {
-                        session_type: "Telnet",
-                        pane_id: pane.id,
-                      },
-                      error: e,
-                    });
-                    markPaneConnectionFailed(tab.id, pane.id, getErrorMessage(e));
-                  });
+                invoke<string>("create_telnet_session", {
+                  connectionId: cid,
+                  createRequestId: pane.createRequestId,
+                })
+                  .then((sessionId) =>
+                    handleRestoredSessionCreated(tab.id, pane.id, sessionId),
+                  )
+                  .catch((e) =>
+                    handleRestoredSessionFailed(tab.id, pane.id, "Telnet", pane.connectionId, e),
+                  );
                 break;
               case "Serial":
                 if (!cid) {
                   markPaneConnectionFailed(tab.id, pane.id, "Missing Serial connection id");
                   return;
                 }
-                invoke<string>("create_serial_session", { connectionId: cid })
-                  .then((sessionId) => updatePaneSession(tab.id, pane.id, sessionId))
-                  .catch((e) => {
-                    logger.error({
-                      domain: "session.lifecycle",
-                      event: "session.restore_failed",
-                      message: "Restore Serial failed",
-                      ids: pane.connectionId ? { connection_id: pane.connectionId } : undefined,
-                      data: {
-                        session_type: "Serial",
-                        pane_id: pane.id,
-                      },
-                      error: e,
-                    });
-                    markPaneConnectionFailed(tab.id, pane.id, getErrorMessage(e));
-                  });
+                invoke<string>("create_serial_session", {
+                  connectionId: cid,
+                  createRequestId: pane.createRequestId,
+                })
+                  .then((sessionId) =>
+                    handleRestoredSessionCreated(tab.id, pane.id, sessionId),
+                  )
+                  .catch((e) =>
+                    handleRestoredSessionFailed(tab.id, pane.id, "Serial", pane.connectionId, e),
+                  );
                 break;
             }
           });
         });
       }
     }
-  }, [appSettings, markPaneConnectionFailed, setActiveTabId, updatePaneSession]);
+  }, [
+    appSettings,
+    handleRestoredSessionCreated,
+    handleRestoredSessionFailed,
+    markPaneConnectionFailed,
+    setActiveTabId,
+  ]);
 
   const contextValue = useMemo(
     () => ({
@@ -1100,6 +1171,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updatePaneSession,
       markPaneConnectionFailed,
       markPaneConnecting,
+      hasTab,
+      hasPane,
       setActivePane,
       updateSplitRatio,
       splitPane,
@@ -1144,6 +1217,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       updatePaneSession,
       markPaneConnectionFailed,
       markPaneConnecting,
+      hasTab,
+      hasPane,
       setActivePane,
       updateSplitRatio,
       splitPane,

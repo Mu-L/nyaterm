@@ -38,6 +38,7 @@ export function createSessionPane(
     type,
     connectionId,
     connecting: overrides?.connecting,
+    createRequestId: overrides?.createRequestId,
     connectError: overrides?.connectError,
   };
 }
@@ -106,7 +107,13 @@ export function updateSessionPane(
   updates: Partial<
     Pick<
       SessionPane,
-      "sessionId" | "name" | "type" | "connectionId" | "connecting" | "connectError"
+      | "sessionId"
+      | "name"
+      | "type"
+      | "connectionId"
+      | "connecting"
+      | "connectError"
+      | "createRequestId"
     >
   >,
 ): PaneNode {
@@ -287,6 +294,7 @@ function restorePane(node: RestorablePaneNode): PaneNode | null {
       type,
       connectionId: node.connection_id,
       connecting: true,
+      createRequestId: crypto.randomUUID(),
     };
   }
 

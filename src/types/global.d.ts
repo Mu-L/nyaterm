@@ -54,6 +54,8 @@ export interface SessionPane {
   connectionId?: string;
   /** True while the backend session is being established. XTerminal is not rendered yet. */
   connecting?: boolean;
+  /** Backend creation request id used to cancel an in-flight session creation. */
+  createRequestId?: string;
   /** Populated when session creation failed and the pane should stay visible as an error state. */
   connectError?: string;
 }

@@ -11,7 +11,7 @@ use crate::core::{
 use crate::error::{AppError, AppResult};
 use std::sync::Arc;
 use tauri::{AppHandle, Manager};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 async fn create_authenticated_connection(
     app: &AppHandle,
@@ -146,6 +146,24 @@ pub async fn create_ssh_handle(app: &AppHandle, connection_id: &str) -> AppResul
 
 /// Connects via SSH, opens a PTY shell, and spawns the I/O loop.
 pub async fn create_ssh_session(
+    app: AppHandle,
+    manager: Arc<SessionManager>,
+    config: SshConfig,
+    connection_id: Option<String>,
+    owner_window_label: Option<String>,
+    cancel_rx: Option<oneshot::Receiver<()>>,
+) -> AppResult<String> {
+    if let Some(mut cancel_rx) = cancel_rx {
+        return tokio::select! {
+            result = create_ssh_session_inner(app, manager, config, connection_id, owner_window_label) => result,
+            _ = &mut cancel_rx => Err(AppError::Cancelled("Session creation cancelled".to_string())),
+        };
+    }
+
+    create_ssh_session_inner(app, manager, config, connection_id, owner_window_label).await
+}
+
+async fn create_ssh_session_inner(
     app: AppHandle,
     manager: Arc<SessionManager>,
     mut config: SshConfig,

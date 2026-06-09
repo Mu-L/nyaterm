@@ -126,6 +126,21 @@ pub struct SessionHandle {
     pub remote_fs: Option<Arc<crate::core::sftp::AutoRemoteFs>>,
 }
 
+pub struct SessionCreationGuard {
+    request_id: String,
+    pending_creations: Arc<Mutex<HashMap<String, oneshot::Sender<()>>>>,
+}
+
+impl Drop for SessionCreationGuard {
+    fn drop(&mut self) {
+        let request_id = self.request_id.clone();
+        let pending_creations = self.pending_creations.clone();
+        tokio::spawn(async move {
+            pending_creations.lock().await.remove(&request_id);
+        });
+    }
+}
+
 #[derive(Debug, Default)]
 struct CommandSubmissionState {
     pending_candidates: VecDeque<String>,
@@ -142,6 +157,7 @@ pub struct SessionManager {
     history_save_worker_started: AtomicBool,
     history_event_notify: Arc<Notify>,
     history_event_worker_started: AtomicBool,
+    pending_creations: Arc<Mutex<HashMap<String, oneshot::Sender<()>>>>,
     app_handle: OnceLock<tauri::AppHandle>,
 }
 
@@ -156,8 +172,36 @@ impl SessionManager {
             history_save_worker_started: AtomicBool::new(false),
             history_event_notify: Arc::new(Notify::new()),
             history_event_worker_started: AtomicBool::new(false),
+            pending_creations: Arc::new(Mutex::new(HashMap::new())),
             app_handle: OnceLock::new(),
         }
+    }
+
+    pub async fn begin_session_creation(
+        &self,
+        request_id: Option<String>,
+    ) -> Option<(SessionCreationGuard, oneshot::Receiver<()>)> {
+        let request_id = request_id?;
+        let (tx, rx) = oneshot::channel();
+        self.pending_creations
+            .lock()
+            .await
+            .insert(request_id.clone(), tx);
+        Some((
+            SessionCreationGuard {
+                request_id,
+                pending_creations: self.pending_creations.clone(),
+            },
+            rx,
+        ))
+    }
+
+    pub async fn cancel_session_creation(&self, request_id: &str) -> bool {
+        self.pending_creations
+            .lock()
+            .await
+            .remove(request_id)
+            .is_some_and(|tx| tx.send(()).is_ok())
     }
 
     /// Store the app handle so the manager can emit events to the frontend.
@@ -683,6 +727,19 @@ mod tests {
             manager.get_all_history().await,
             vec!["show version".to_string()]
         );
+    }
+
+    #[tokio::test]
+    async fn session_creation_cancel_signal_is_one_shot() {
+        let manager = SessionManager::new();
+        let (_guard, mut cancel_rx) = manager
+            .begin_session_creation(Some("create-1".to_string()))
+            .await
+            .expect("creation guard");
+
+        assert!(manager.cancel_session_creation("create-1").await);
+        assert!(cancel_rx.try_recv().is_ok());
+        assert!(!manager.cancel_session_creation("create-1").await);
     }
 
     #[tokio::test]

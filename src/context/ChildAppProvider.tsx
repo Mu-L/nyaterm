@@ -243,6 +243,12 @@ export function ChildAppProvider({ children }: { children: ReactNode }) {
 
   const noop = useCallback(() => {}, []);
   const noopString = useCallback(() => "", []);
+  const noopPendingTab = useCallback(
+    () => ({ tabId: "", createRequestId: crypto.randomUUID() }),
+    [],
+  );
+  const noopPaneConnecting = useCallback(() => null, []);
+  const noopBoolean = useCallback(() => false, []);
   const noopAsync = useCallback(async () => {}, []);
   const noopSplitPane = useCallback(() => null, []);
 
@@ -255,12 +261,14 @@ export function ChildAppProvider({ children }: { children: ReactNode }) {
       activeTabId: null,
       setActiveTabId: noop,
       addTab: noopString,
-      addPendingTab: noopString,
+      addPendingTab: noopPendingTab,
       updateTabSession: noop,
       markTabConnectionFailed: noop,
       updatePaneSession: noop,
       markPaneConnectionFailed: noop,
-      markPaneConnecting: noop,
+      markPaneConnecting: noopPaneConnecting,
+      hasTab: noopBoolean,
+      hasPane: noopBoolean,
       setActivePane: noop,
       updateSplitRatio: noop,
       splitPane: noopSplitPane,
@@ -297,6 +305,9 @@ export function ChildAppProvider({ children }: { children: ReactNode }) {
     [
       noop,
       noopString,
+      noopPendingTab,
+      noopPaneConnecting,
+      noopBoolean,
       noopAsync,
       noopSplitPane,
       emptyConnections,

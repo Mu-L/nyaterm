@@ -95,6 +95,7 @@ export default function SavedConnections({
     addPendingTab,
     updateTabSession,
     markTabConnectionFailed,
+    hasTab,
     appSettings,
     updateUi,
     recordRecentConnection,
@@ -397,28 +398,60 @@ export default function SavedConnections({
       serial: "Serial",
     };
     const sessionType = typeMap[conn.type] || "SSH";
-    const tabId = addPendingTab(conn.name, sessionType, conn.id);
+    const { tabId, createRequestId } = addPendingTab(conn.name, sessionType, conn.id);
 
     try {
       let sessionId: string;
       switch (conn.type) {
         case "local_terminal":
-          sessionId = await invoke<string>("create_local_session", { connectionId: conn.id });
+          sessionId = await invoke<string>("create_local_session", {
+            connectionId: conn.id,
+            createRequestId,
+          });
           break;
         case "telnet":
-          sessionId = await invoke<string>("create_telnet_session", { connectionId: conn.id });
+          sessionId = await invoke<string>("create_telnet_session", {
+            connectionId: conn.id,
+            createRequestId,
+          });
           break;
         case "serial":
-          sessionId = await invoke<string>("create_serial_session", { connectionId: conn.id });
+          sessionId = await invoke<string>("create_serial_session", {
+            connectionId: conn.id,
+            createRequestId,
+          });
           break;
         default:
-          sessionId = await invoke<string>("create_ssh_session", { connectionId: conn.id });
+          sessionId = await invoke<string>("create_ssh_session", {
+            connectionId: conn.id,
+            createRequestId,
+          });
           break;
+      }
+      if (!hasTab(tabId)) {
+        try {
+          await invoke("close_session", { sessionId });
+        } catch (error) {
+          logger.error({
+            domain: "session.lifecycle",
+            event: "session.stale_close_failed",
+            message: "Failed to close stale created session",
+            ids: { session_id: sessionId },
+            error,
+          });
+        }
+        return;
       }
       updateTabSession(tabId, sessionId);
       recordRecentConnection(conn.id);
     } catch (e) {
       const errorMessage = getErrorMessage(e);
+      if (
+        errorMessage.toLowerCase().includes("session creation cancelled") ||
+        !hasTab(tabId)
+      ) {
+        return;
+      }
       logger.error({
         domain: "session.lifecycle",
         event: "connection.open_failed",

@@ -15,8 +15,14 @@ pub async fn create_ssh_session(
     window: tauri::WebviewWindow,
     state: tauri::State<'_, Arc<SessionManager>>,
     connection_id: String,
+    create_request_id: Option<String>,
 ) -> AppResult<String> {
     let ssh_config = ssh::load_saved_ssh_config(&app, &connection_id)?;
+    let pending_creation = state.begin_session_creation(create_request_id).await;
+    let (guard, cancel_rx) = match pending_creation {
+        Some((guard, cancel_rx)) => (Some(guard), Some(cancel_rx)),
+        None => (None, None),
+    };
 
     let session_id = ssh::create_ssh_session(
         app,
@@ -24,8 +30,10 @@ pub async fn create_ssh_session(
         ssh_config,
         Some(connection_id.clone()),
         Some(window.label().to_string()),
+        cancel_rx,
     )
     .await?;
+    drop(guard);
     if let Err(error) = crate::storage::mark_connection_used(&connection_id) {
         tracing::warn!(connection_id, %error, "Failed to mark connection as recently used");
     }
@@ -47,7 +55,13 @@ pub async fn create_local_session(
     window: tauri::WebviewWindow,
     state: tauri::State<'_, Arc<SessionManager>>,
     connection_id: Option<String>,
+    create_request_id: Option<String>,
 ) -> AppResult<String> {
+    let pending_creation = state.begin_session_creation(create_request_id).await;
+    let (guard, _cancel_rx) = match pending_creation {
+        Some((guard, cancel_rx)) => (Some(guard), Some(cancel_rx)),
+        None => (None, None),
+    };
     let config = if let Some(ref cid) = connection_id {
         let conn = config::load_connection_by_id(&app, cid)?;
         match conn.config {
@@ -74,6 +88,7 @@ pub async fn create_local_session(
         Some(window.label().to_string()),
     )
     .await?;
+    drop(guard);
     if let Some(connection_id) = connection_id {
         if let Err(error) = crate::storage::mark_connection_used(&connection_id) {
             tracing::warn!(connection_id, %error, "Failed to mark connection as recently used");
@@ -91,7 +106,13 @@ pub async fn create_telnet_session(
     host: Option<String>,
     port: Option<u16>,
     name: Option<String>,
+    create_request_id: Option<String>,
 ) -> AppResult<String> {
+    let pending_creation = state.begin_session_creation(create_request_id).await;
+    let (guard, _cancel_rx) = match pending_creation {
+        Some((guard, cancel_rx)) => (Some(guard), Some(cancel_rx)),
+        None => (None, None),
+    };
     let (h, p, n, bs_mode) = if let Some(ref cid) = connection_id {
         let conn = config::load_connection_by_id(&app, cid)?;
         match conn.config {
@@ -128,6 +149,7 @@ pub async fn create_telnet_session(
             Some(window.label().to_string()),
         )
         .await?;
+    drop(guard);
     if let Some(connection_id) = marked_connection_id {
         if let Err(error) = crate::storage::mark_connection_used(&connection_id) {
             tracing::warn!(connection_id, %error, "Failed to mark connection as recently used");
@@ -148,7 +170,13 @@ pub async fn create_serial_session(
     parity: Option<String>,
     stop_bits: Option<String>,
     name: Option<String>,
+    create_request_id: Option<String>,
 ) -> AppResult<String> {
+    let pending_creation = state.begin_session_creation(create_request_id).await;
+    let (guard, _cancel_rx) = match pending_creation {
+        Some((guard, cancel_rx)) => (Some(guard), Some(cancel_rx)),
+        None => (None, None),
+    };
     let cfg = if let Some(ref cid) = connection_id {
         let conn = config::load_connection_by_id(&app, cid)?;
         match conn.config {
@@ -197,12 +225,21 @@ pub async fn create_serial_session(
             Some(window.label().to_string()),
         )
         .await?;
+    drop(guard);
     if let Some(connection_id) = marked_connection_id {
         if let Err(error) = crate::storage::mark_connection_used(&connection_id) {
             tracing::warn!(connection_id, %error, "Failed to mark connection as recently used");
         }
     }
     Ok(session_id)
+}
+
+#[tauri::command]
+pub async fn cancel_session_creation(
+    state: tauri::State<'_, Arc<SessionManager>>,
+    create_request_id: String,
+) -> AppResult<bool> {
+    Ok(state.cancel_session_creation(&create_request_id).await)
 }
 
 #[tauri::command]

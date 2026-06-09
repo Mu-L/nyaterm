@@ -94,16 +94,50 @@ function getConnectionSessionType(
   return connection ? CONNECTION_SESSION_TYPES[connection.type] : "SSH";
 }
 
-async function createSessionForConnection(connection: Pick<SavedConnection, "id" | "type">) {
+function isSessionCreationCancelled(error: unknown) {
+  return getErrorMessage(error).toLowerCase().includes("session creation cancelled");
+}
+
+async function closeStaleCreatedSession(sessionId: string) {
+  try {
+    await invoke("close_session", { sessionId });
+    clearSessionCommandHistory(sessionId);
+  } catch (error) {
+    logger.error({
+      domain: "session.lifecycle",
+      event: "session.stale_close_failed",
+      message: "Failed to close stale created session",
+      ids: { session_id: sessionId },
+      error,
+    });
+  }
+}
+
+async function createSessionForConnection(
+  connection: Pick<SavedConnection, "id" | "type">,
+  createRequestId?: string,
+) {
   switch (connection.type) {
     case "local_terminal":
-      return invoke<string>("create_local_session", { connectionId: connection.id });
+      return invoke<string>("create_local_session", {
+        connectionId: connection.id,
+        createRequestId,
+      });
     case "telnet":
-      return invoke<string>("create_telnet_session", { connectionId: connection.id });
+      return invoke<string>("create_telnet_session", {
+        connectionId: connection.id,
+        createRequestId,
+      });
     case "serial":
-      return invoke<string>("create_serial_session", { connectionId: connection.id });
+      return invoke<string>("create_serial_session", {
+        connectionId: connection.id,
+        createRequestId,
+      });
     default:
-      return invoke<string>("create_ssh_session", { connectionId: connection.id });
+      return invoke<string>("create_ssh_session", {
+        connectionId: connection.id,
+        createRequestId,
+      });
   }
 }
 
@@ -133,6 +167,8 @@ function App() {
     updatePaneSession,
     markPaneConnectionFailed,
     markPaneConnecting,
+    hasTab,
+    hasPane,
     closePane,
     updateSplitRatio,
     persistTabsNow,
@@ -374,25 +410,28 @@ function App() {
               getActivePane(sourceTab));
           let tabId: string;
           let paneId: string | undefined;
+          let createRequestId: string | null = null;
 
           if (sourceTab && sourcePane) {
             tabId = sourceTab.id;
             paneId = sourcePane.id;
             setActiveTabId(tabId);
             setActivePane(tabId, paneId);
-            markPaneConnecting(tabId, paneId, {
+            createRequestId = markPaneConnecting(tabId, paneId, {
               name: connName,
               type: sessionType,
               connectionId,
             });
           } else {
-            tabId = addPendingTab(
+            const pending = addPendingTab(
               connName,
               sessionType,
               connectionId,
               undefined,
               anchorTabId ? { afterTabId: anchorTabId } : undefined,
             );
+            tabId = pending.tabId;
+            createRequestId = pending.createRequestId;
             if (targetLeafId) {
               setTerminalWindows((current) =>
                 current
@@ -409,17 +448,33 @@ function App() {
             let sessionId: string;
             switch (conn?.type) {
               case "local_terminal":
-                sessionId = await invoke<string>("create_local_session", { connectionId });
+                sessionId = await invoke<string>("create_local_session", {
+                  connectionId,
+                  createRequestId,
+                });
                 break;
               case "telnet":
-                sessionId = await invoke<string>("create_telnet_session", { connectionId });
+                sessionId = await invoke<string>("create_telnet_session", {
+                  connectionId,
+                  createRequestId,
+                });
                 break;
               case "serial":
-                sessionId = await invoke<string>("create_serial_session", { connectionId });
+                sessionId = await invoke<string>("create_serial_session", {
+                  connectionId,
+                  createRequestId,
+                });
                 break;
               default:
-                sessionId = await invoke<string>("create_ssh_session", { connectionId });
+                sessionId = await invoke<string>("create_ssh_session", {
+                  connectionId,
+                  createRequestId,
+                });
                 break;
+            }
+            if (paneId ? !hasPane(tabId, paneId) : !hasTab(tabId)) {
+              await closeStaleCreatedSession(sessionId);
+              return;
             }
             if (paneId) {
               updatePaneSession(tabId, paneId, sessionId);
@@ -428,6 +483,9 @@ function App() {
             }
             recordRecentConnection(connectionId);
           } catch (error) {
+            if (isSessionCreationCancelled(error) || (paneId ? !hasPane(tabId, paneId) : !hasTab(tabId))) {
+              return;
+            }
             const errorMessage = getErrorMessage(error);
             if (paneId) {
               markPaneConnectionFailed(tabId, paneId, errorMessage);
@@ -455,6 +513,8 @@ function App() {
   }, [
     addTab,
     addPendingTab,
+    hasPane,
+    hasTab,
     markPaneConnecting,
     markPaneConnectionFailed,
     markTabConnectionFailed,
@@ -605,13 +665,14 @@ function App() {
         handleSelectLeafTab(leafId, targetLeaf.activeTabId);
       }
 
-      const tabId = addPendingTab(
+      const pending = addPendingTab(
         connection.name,
         getConnectionSessionType(connection),
         connection.id,
         undefined,
         anchorTabId ? { afterTabId: anchorTabId } : undefined,
       );
+      const { tabId, createRequestId } = pending;
 
       if (targetLeaf) {
         setTerminalWindows((current) =>
@@ -625,10 +686,17 @@ function App() {
       }
 
       try {
-        const sessionId = await createSessionForConnection(connection);
+        const sessionId = await createSessionForConnection(connection, createRequestId);
+        if (!hasTab(tabId)) {
+          await closeStaleCreatedSession(sessionId);
+          return;
+        }
         updateTabSession(tabId, sessionId);
         recordRecentConnection(connection.id);
       } catch (error) {
+        if (isSessionCreationCancelled(error) || !hasTab(tabId)) {
+          return;
+        }
         const errorMessage = getErrorMessage(error);
         logger.error({
           domain: "session.lifecycle",
@@ -644,6 +712,7 @@ function App() {
     },
     [
       addPendingTab,
+      hasTab,
       handleSelectLeafTab,
       markTabConnectionFailed,
       maybePromptConnectionEdit,
@@ -707,29 +776,58 @@ function App() {
   );
 
   const createSessionForPane = useCallback(
-    async (pane: Pick<SessionPane, "type" | "connectionId">) => {
+    async (pane: Pick<SessionPane, "type" | "connectionId">, createRequestId?: string) => {
       switch (pane.type) {
         case "Local":
           return invoke<string>("create_local_session", {
             connectionId: pane.connectionId || null,
+            createRequestId,
           });
         case "Telnet":
           if (!pane.connectionId) throw new Error("Missing Telnet connection id");
-          return invoke<string>("create_telnet_session", { connectionId: pane.connectionId });
+          return invoke<string>("create_telnet_session", {
+            connectionId: pane.connectionId,
+            createRequestId,
+          });
         case "Serial":
           if (!pane.connectionId) throw new Error("Missing Serial connection id");
-          return invoke<string>("create_serial_session", { connectionId: pane.connectionId });
+          return invoke<string>("create_serial_session", {
+            connectionId: pane.connectionId,
+            createRequestId,
+          });
         default:
           if (!pane.connectionId) throw new Error("Missing SSH connection id");
-          return invoke<string>("create_ssh_session", { connectionId: pane.connectionId });
+          return invoke<string>("create_ssh_session", {
+            connectionId: pane.connectionId,
+            createRequestId,
+          });
       }
     },
     [],
   );
 
   const closePaneBackendSession = useCallback(
-    async (pane: Pick<SessionPane, "connecting" | "connectError" | "sessionId">) => {
-      if (pane.connecting || pane.connectError) {
+    async (
+      pane: Pick<SessionPane, "connecting" | "connectError" | "sessionId" | "createRequestId">,
+    ) => {
+      if (pane.connecting) {
+        if (pane.createRequestId) {
+          try {
+            await invoke("cancel_session_creation", { createRequestId: pane.createRequestId });
+          } catch (error) {
+            logger.error({
+              domain: "session.lifecycle",
+              event: "session.creation_cancel_failed",
+              message: "Failed to cancel session creation",
+              data: { create_request_id: pane.createRequestId },
+              error,
+            });
+          }
+        }
+        return true;
+      }
+
+      if (pane.connectError) {
         return true;
       }
 
@@ -1003,23 +1101,31 @@ function App() {
       if (!canCreateSessionFromPane(pane)) return;
 
       try {
-        const tabId = addPendingTab(
+        const pending = addPendingTab(
           pane.name,
           pane.type,
           pane.connectionId,
           { customName: tab.customName, tabColor: tab.tabColor },
           { afterTabId: tab.id },
         );
+        const { tabId, createRequestId } = pending;
         setTerminalWindows((current) =>
           current ? insertTabAfterInLeaf(current, tab.id, tabId, tabId) : current,
         );
         try {
-          const sessionId = await createSessionForPane(pane);
+          const sessionId = await createSessionForPane(pane, createRequestId);
+          if (!hasTab(tabId)) {
+            await closeStaleCreatedSession(sessionId);
+            return;
+          }
           updateTabSession(tabId, sessionId);
           if (pane.connectionId) {
             recordRecentConnection(pane.connectionId);
           }
         } catch (error) {
+          if (isSessionCreationCancelled(error) || !hasTab(tabId)) {
+            return;
+          }
           const errorMessage = getErrorMessage(error);
           logger.error({
             domain: "session.lifecycle",
@@ -1045,6 +1151,7 @@ function App() {
     [
       addPendingTab,
       createSessionForPane,
+      hasTab,
       markTabConnectionFailed,
       maybePromptConnectionEdit,
       recordRecentConnection,
@@ -1061,13 +1168,14 @@ function App() {
       let tabId: string | undefined;
 
       try {
-        tabId = addPendingTab(
+        const pending = addPendingTab(
           pane.name,
           pane.type,
           pane.connectionId,
           { customName: tab.customName, tabColor: tab.tabColor },
           { afterTabId: tab.id },
         );
+        tabId = pending.tabId;
         setTerminalWindows((current) =>
           current && tabId ? insertTabAfterInLeaf(current, tab.id, tabId, tabId) : current,
         );
@@ -1075,11 +1183,18 @@ function App() {
         const sessionId = await invoke<string>("create_multiplexed_ssh_session", {
           sourceSessionId: pane.sessionId,
         });
+        if (!hasTab(tabId)) {
+          await closeStaleCreatedSession(sessionId);
+          return;
+        }
         updateTabSession(tabId, sessionId);
         if (pane.connectionId) {
           recordRecentConnection(pane.connectionId);
         }
       } catch (error) {
+        if ((tabId && !hasTab(tabId)) || isSessionCreationCancelled(error)) {
+          return;
+        }
         const errorMessage = getErrorMessage(error);
         logger.error({
           domain: "session.lifecycle",
@@ -1096,7 +1211,7 @@ function App() {
         toast.error(t("tabCtx.multiplexSshFailed"));
       }
     },
-    [addPendingTab, markTabConnectionFailed, recordRecentConnection, t, updateTabSession],
+    [addPendingTab, hasTab, markTabConnectionFailed, recordRecentConnection, t, updateTabSession],
   );
 
   const handleReconnectSession = useCallback(
@@ -1112,13 +1227,22 @@ function App() {
           throw new Error("close_session_failed");
         }
 
-        const newSessionId = await createSessionForPane(pane);
+        const createRequestId = markPaneConnecting(tab.id, pane.id);
+        if (!createRequestId) return;
+        const newSessionId = await createSessionForPane(pane, createRequestId);
+        if (!hasPane(tab.id, pane.id)) {
+          await closeStaleCreatedSession(newSessionId);
+          return;
+        }
         updatePaneSession(tab.id, pane.id, newSessionId);
         if (pane.connectionId) {
           recordRecentConnection(pane.connectionId);
         }
         toast.success(t("tabCtx.reconnectSuccess"));
       } catch (error) {
+        if (isSessionCreationCancelled(error) || !hasPane(tab.id, pane.id)) {
+          return;
+        }
         const errorMessage = getErrorMessage(error);
         logger.error({
           domain: "session.lifecycle",
@@ -1137,6 +1261,8 @@ function App() {
     [
       closePaneBackendSession,
       createSessionForPane,
+      hasPane,
+      markPaneConnecting,
       maybePromptConnectionEdit,
       recordRecentConnection,
       t,
@@ -1174,13 +1300,22 @@ function App() {
           throw new Error("close_session_failed");
         }
 
-        const newSessionId = await createSessionForPane(pane);
+        const createRequestId = markPaneConnecting(tab.id, pane.id);
+        if (!createRequestId) return;
+        const newSessionId = await createSessionForPane(pane, createRequestId);
+        if (!hasPane(tab.id, pane.id)) {
+          await closeStaleCreatedSession(newSessionId);
+          return;
+        }
         updatePaneSession(tab.id, pane.id, newSessionId);
         if (pane.connectionId) {
           recordRecentConnection(pane.connectionId);
         }
         toast.success(t("tabCtx.reconnectSuccess"));
       } catch (error) {
+        if (isSessionCreationCancelled(error) || !hasPane(tab.id, pane.id)) {
+          return;
+        }
         const errorMessage = getErrorMessage(error);
         logger.error({
           domain: "session.lifecycle",
@@ -1199,6 +1334,8 @@ function App() {
     [
       closePaneBackendSession,
       createSessionForPane,
+      hasPane,
+      markPaneConnecting,
       maybePromptConnectionEdit,
       recordRecentConnection,
       t,
@@ -1229,18 +1366,23 @@ function App() {
       let newTabId: string | undefined;
 
       try {
-        newTabId = addPendingTab(
+        const pending = addPendingTab(
           pane.name,
           pane.type,
           pane.connectionId,
           { customName: tab.customName, tabColor: tab.tabColor },
           { afterTabId: tab.id },
         );
+        newTabId = pending.tabId;
         setTerminalWindows((current) =>
           current ? splitTerminalWindowForTab(current, tab.id, direction, newTabId) : current,
         );
-        const sessionId = await createSessionForPane(pane);
+        const sessionId = await createSessionForPane(pane, pending.createRequestId);
         if (newTabId) {
+          if (!hasTab(newTabId)) {
+            await closeStaleCreatedSession(sessionId);
+            return;
+          }
           updateTabSession(newTabId, sessionId);
         }
         if (pane.connectionId) {
@@ -1248,6 +1390,9 @@ function App() {
         }
         window.dispatchEvent(new CustomEvent("nyaterm:refresh-terminals"));
       } catch (error) {
+        if ((newTabId && !hasTab(newTabId)) || isSessionCreationCancelled(error)) {
+          return;
+        }
         const errorMessage = getErrorMessage(error);
         logger.error({
           domain: "session.lifecycle",
@@ -1270,6 +1415,7 @@ function App() {
     [
       addPendingTab,
       createSessionForPane,
+      hasTab,
       markTabConnectionFailed,
       maybePromptConnectionEdit,
       recordRecentConnection,
@@ -1308,12 +1454,21 @@ function App() {
           throw new Error("close_session_failed");
         }
 
-        const newSessionId = await createSessionForPane(pane);
+        const createRequestId = markPaneConnecting(tabId, paneId);
+        if (!createRequestId) return;
+        const newSessionId = await createSessionForPane(pane, createRequestId);
+        if (!hasPane(tabId, paneId)) {
+          await closeStaleCreatedSession(newSessionId);
+          return;
+        }
         updatePaneSession(tabId, paneId, newSessionId);
         if (pane.connectionId) {
           recordRecentConnection(pane.connectionId);
         }
       } catch (error) {
+        if (isSessionCreationCancelled(error) || !hasPane(tabId, paneId)) {
+          return;
+        }
         const errorMessage = getErrorMessage(error);
         logger.error({
           domain: "session.lifecycle",
@@ -1332,7 +1487,9 @@ function App() {
     [
       closePaneBackendSession,
       createSessionForPane,
+      hasPane,
       markPaneConnectionFailed,
+      markPaneConnecting,
       maybePromptConnectionEdit,
       recordRecentConnection,
       tabs,

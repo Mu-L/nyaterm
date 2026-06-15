@@ -631,6 +631,48 @@ function TabBar({
     const showUnreadIndicator = !isFocused && unreadTabIds?.has(tab.id);
     const displayName = getTabDisplayName(tab);
     const accentColor = tab.tabColor;
+    const pane = getActivePane(tab);
+    const conn = pane?.connectionId
+      ? savedConnections.find((connection) => connection.id === pane.connectionId)
+      : undefined;
+    const host = conn?.host;
+    const sshAddress =
+      conn?.username && conn.host && conn.port
+        ? `ssh -p ${conn.port} ${conn.username}@${conn.host}`
+        : null;
+
+    const renderTooltipCopyRow = (value: string, label: string, copiedMessage: string) => (
+      <div className="flex min-w-0 items-center gap-2 text-[var(--df-text-muted)]">
+        <span className="min-w-0 truncate">{value}</span>
+        <button
+          type="button"
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--df-text-dimmed)] transition-colors hover:bg-accent hover:text-[var(--df-primary)]"
+          aria-label={label}
+          onClick={(event) => {
+            event.stopPropagation();
+            navigator.clipboard
+              .writeText(value)
+              .then(() => toast.success(copiedMessage))
+              .catch(() => toast.error(t("tabCtx.copyFailed")));
+          }}
+        >
+          <MdContentCopy className="text-[12px]" />
+        </button>
+      </div>
+    );
+
+    const tooltipContent =
+      host || sshAddress ? (
+        <div className="flex max-w-[260px] min-w-0 flex-col gap-1">
+          {host && renderTooltipCopyRow(host, t("tabCtx.copyIp"), t("tabCtx.ipCopied"))}
+          {sshAddress &&
+            renderTooltipCopyRow(
+              sshAddress,
+              t("tabCtx.copySshAddress"),
+              t("tabCtx.sshAddressCopied"),
+            )}
+        </div>
+      ) : undefined;
 
     const tabButton = (
       <div
@@ -693,40 +735,9 @@ function TabBar({
           {index + 1}
         </span>
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="max-w-[160px] truncate whitespace-nowrap">{displayName}</span>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" sideOffset={6} showArrow className="max-w-xs truncate">
-            {index + 1}. {displayName}
-          </TooltipContent>
-        </Tooltip>
+        <span className="max-w-[160px] truncate whitespace-nowrap">{displayName}</span>
 
         <SyncIndicator tab={tab} syncGroups={syncGroups} broadcastToAll={broadcastToAll} />
-
-        {(() => {
-          const pane = getActivePane(tab);
-          const conn = pane?.connectionId
-            ? savedConnections.find((c) => c.id === pane.connectionId)
-            : undefined;
-          const host = conn?.host;
-          if (host) {
-            return (
-              <div
-                className="ml-0.5 flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded text-[var(--df-text-dimmed)] opacity-0 transition-all duration-200 hover:text-[var(--df-primary)] active:scale-90 group-hover:opacity-100"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  navigator.clipboard.writeText(host).catch(() => {});
-                  toast.success(t("tabCtx.ipCopied"));
-                }}
-                title={host}
-              >
-                <MdContentCopy className="text-[10px]" />
-              </div>
-            );
-          }
-          return null;
-        })()}
 
         <div className="relative ml-0.5 flex h-[18px] w-[18px] shrink-0 items-center justify-center">
           {showUnreadIndicator ? (
@@ -765,6 +776,7 @@ function TabBar({
 
         <TabContextMenu
           tab={tab}
+          tooltipContent={tooltipContent}
           tabs={tabs}
           onDuplicateSession={onDuplicateSession}
           onMultiplexSshSession={onMultiplexSshSession}

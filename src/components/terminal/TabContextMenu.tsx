@@ -195,7 +195,7 @@ export default function TabContextMenu({
             <TooltipTrigger asChild>
               <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
             </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={6} showArrow className="max-w-xs truncate">
+            <TooltipContent side="bottom" sideOffset={6} showArrow className="max-w-xs">
               {tooltipContent}
             </TooltipContent>
           </Tooltip>

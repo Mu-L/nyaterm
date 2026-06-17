@@ -59,6 +59,8 @@ pub enum SettingsDocKey {
     AiAudit,
     SftpFileBackendCache,
     WindowState,
+    ProxyGroups,
+    TunnelGroups,
 }
 impl SettingsDocKey {
     fn storage_key(self) -> &'static str {
@@ -71,6 +73,8 @@ impl SettingsDocKey {
             Self::AiAudit => "settings/doc/ai-audit",
             Self::SftpFileBackendCache => "settings/doc/file-backend-cache",
             Self::WindowState => "settings/doc/window-state",
+            Self::ProxyGroups => "settings/doc/proxy-groups",
+            Self::TunnelGroups => "settings/doc/tunnel-groups",
         }
     }
 
@@ -83,7 +87,7 @@ impl SettingsDocKey {
             Self::AiHistory => Some(tables::LEGACY_JSON_AI_HISTORY),
             Self::AiAudit => Some(tables::LEGACY_JSON_AI_AUDIT),
             Self::SftpFileBackendCache => Some("file-backend-cache"),
-            Self::WindowState => None,
+            Self::WindowState | Self::ProxyGroups | Self::TunnelGroups => None,
         }
     }
 }

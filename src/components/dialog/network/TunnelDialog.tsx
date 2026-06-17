@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-import type { TunnelConfig } from "@/types/global";
+import type { NetworkGroup, TunnelConfig } from "@/types/global";
 import { ConnectionCombobox, type ConnectionOption } from "./shared";
 
 type TunnelMode = "local" | "remote" | "dynamic";
@@ -49,6 +49,7 @@ export function createTunnelDraft(tunnel?: TunnelConfig | null): TunnelConfig {
       is_open: false,
       auto_open: false,
       bind_localhost: true,
+      group_id: undefined,
     }
   );
 }
@@ -130,6 +131,7 @@ export function TunnelDialog({
   open,
   tunnel,
   connectionOptions,
+  groups,
   saving,
   onOpenChange,
   onSave,
@@ -137,6 +139,7 @@ export function TunnelDialog({
   open: boolean;
   tunnel: TunnelConfig | null;
   connectionOptions: ConnectionOption[];
+  groups: NetworkGroup[];
   saving: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (tunnel: TunnelConfig) => Promise<void>;
@@ -191,6 +194,7 @@ export function TunnelDialog({
       name: trimmedName,
       target_host: tunnelMode === "dynamic" ? "127.0.0.1" : form.target_host.trim() || "127.0.0.1",
       target_port: tunnelMode === "dynamic" ? 0 : form.target_port,
+      group_id: form.group_id || undefined,
     });
   };
 
@@ -203,34 +207,56 @@ export function TunnelDialog({
         </DialogHeader>
 
         <div className="grid gap-4">
-          {/* Tunnel Name and Type */}
-          <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_220px]">
-            <div className="space-y-1.5">
+          {/* Tunnel Name, Type and Group */}
+          <div className="grid gap-3 sm:grid-cols-[minmax(220px,1fr)_132px_132px]">
+            <div className="min-w-0 space-y-1.5">
               <Label className="text-sm">
                 {t("network.tunnelName")}
                 <span className="ml-1 text-destructive">*</span>
               </Label>
               <Input
-                className="h-9 text-sm"
+                className="h-9 w-full text-sm"
                 placeholder={t("network.tunnelNamePlaceholder")}
                 value={form.name}
                 onChange={(event) => updateForm({ name: event.target.value })}
               />
             </div>
 
-            <div className="space-y-1.5">
+            <div className="min-w-0 space-y-1.5">
               <Label className="text-sm">{t("network.tunnelType")}</Label>
               <Select
                 value={tunnelMode}
                 onValueChange={(value) => updateForm({ tunnel_type: value as TunnelMode })}
               >
-                <SelectTrigger className="h-9 text-sm">
+                <SelectTrigger className="h-9 w-full text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="local">{t("network.localTunnel")}</SelectItem>
                   <SelectItem value="remote">{t("network.remoteTunnel")}</SelectItem>
                   <SelectItem value="dynamic">{t("network.dynamicTunnel")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="min-w-0 space-y-1.5">
+              <Label className="text-sm">{t("network.group")}</Label>
+              <Select
+                value={form.group_id || "__ungrouped__"}
+                onValueChange={(value) =>
+                  updateForm({ group_id: value === "__ungrouped__" ? undefined : value })
+                }
+              >
+                <SelectTrigger className="h-9 w-full text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__ungrouped__">{t("network.ungrouped")}</SelectItem>
+                  {groups.map((group) => (
+                    <SelectItem key={group.id} value={group.id}>
+                      {group.name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

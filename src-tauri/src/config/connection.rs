@@ -288,6 +288,7 @@ fn migrate_global_proxy_to_connections(app: &AppHandle, cfg: &mut SessionsConfig
         port: legacy_proxy.port,
         username: None,
         password: None,
+        group_id: None,
     });
 
     for conn in &mut cfg.connections {

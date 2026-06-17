@@ -18,6 +18,11 @@ pub fn get_proxies(app: tauri::AppHandle) -> AppResult<Vec<ProxyConfig>> {
 }
 
 #[tauri::command]
+pub fn get_proxy_groups(app: tauri::AppHandle) -> AppResult<Vec<config::ProxyGroup>> {
+    config::load_proxy_groups(&app)
+}
+
+#[tauri::command]
 pub fn save_proxy(app: tauri::AppHandle, mut proxy: ProxyConfig) -> AppResult<String> {
     let mut proxies = config::load_proxies(&app)?;
 
@@ -45,10 +50,69 @@ pub fn save_proxy(app: tauri::AppHandle, mut proxy: ProxyConfig) -> AppResult<St
 }
 
 #[tauri::command]
+pub fn save_proxy_group(
+    app: tauri::AppHandle,
+    mut group: config::ProxyGroup,
+) -> AppResult<String> {
+    let mut groups = config::load_proxy_groups(&app)?;
+
+    if group.id.is_empty() {
+        group.id = uuid::Uuid::new_v4().to_string();
+    }
+    let target_id = group.id.clone();
+    if let Some(existing) = groups.iter_mut().find(|item| item.id == target_id) {
+        *existing = group;
+    } else {
+        groups.push(group);
+    }
+
+    config::save_proxy_groups(&app, &groups)?;
+    schedule_cloud_sync_notify(app.clone());
+    Ok(target_id)
+}
+
+#[tauri::command]
+pub fn set_proxy_group(
+    app: tauri::AppHandle,
+    proxy_id: String,
+    group_id: Option<String>,
+) -> AppResult<()> {
+    let mut proxies = config::load_proxies(&app)?;
+    if let Some(proxy) = proxies.iter_mut().find(|proxy| proxy.id == proxy_id) {
+        proxy.group_id = group_id;
+    }
+    config::save_proxies(&app, &proxies)?;
+    schedule_cloud_sync_notify(app.clone());
+    Ok(())
+}
+
+#[tauri::command]
 pub fn delete_proxy(app: tauri::AppHandle, proxy_id: String) -> AppResult<()> {
     let mut proxies = config::load_proxies(&app)?;
     proxies.retain(|p| p.id != proxy_id);
     config::save_proxies(&app, &proxies)?;
+    schedule_cloud_sync_notify(app.clone());
+    Ok(())
+}
+
+#[tauri::command]
+pub fn delete_proxy_group(app: tauri::AppHandle, group_id: String) -> AppResult<()> {
+    let mut groups = config::load_proxy_groups(&app)?;
+    groups.retain(|group| group.id != group_id);
+    config::save_proxy_groups(&app, &groups)?;
+
+    let mut proxies = config::load_proxies(&app)?;
+    let mut changed = false;
+    for proxy in &mut proxies {
+        if proxy.group_id.as_deref() == Some(group_id.as_str()) {
+            proxy.group_id = None;
+            changed = true;
+        }
+    }
+    if changed {
+        config::save_proxies(&app, &proxies)?;
+    }
+
     schedule_cloud_sync_notify(app.clone());
     Ok(())
 }

@@ -473,6 +473,13 @@ export interface ProxyConfig {
   username?: string;
   password?: string;
   password_id?: string;
+  group_id?: string;
+}
+
+export interface NetworkGroup {
+  id: string;
+  name: string;
+  sort_order: number;
 }
 
 export interface SearchEngine {
@@ -783,6 +790,7 @@ export interface TunnelConfig {
   is_open: boolean;
   auto_open: boolean;
   bind_localhost: boolean;
+  group_id?: string;
 }
 
 export interface InteractionSettings {

@@ -1,6 +1,6 @@
 use super::{default_false, default_true, uuid_v4};
 use crate::error::AppResult;
-use crate::storage;
+use crate::storage::{self, SettingsDocKey};
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 
@@ -26,6 +26,17 @@ pub struct TunnelConfig {
     pub auto_open: bool,
     #[serde(default = "default_true")]
     pub bind_localhost: bool,
+    #[serde(default)]
+    pub group_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TunnelGroup {
+    #[serde(default = "uuid_v4")]
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub sort_order: u32,
 }
 
 fn default_tunnel_type() -> String {
@@ -45,6 +56,7 @@ impl Default for TunnelConfig {
             is_open: false,
             auto_open: false,
             bind_localhost: true,
+            group_id: None,
         }
     }
 }
@@ -55,6 +67,12 @@ pub struct TunnelsConfig {
     pub tunnels: Vec<TunnelConfig>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TunnelGroupsConfig {
+    #[serde(default)]
+    pub groups: Vec<TunnelGroup>,
+}
+
 pub fn load_tunnels(app: &AppHandle) -> AppResult<Vec<TunnelConfig>> {
     let _ = app;
     storage::list_tunnels()
@@ -63,4 +81,19 @@ pub fn load_tunnels(app: &AppHandle) -> AppResult<Vec<TunnelConfig>> {
 pub fn save_tunnels(app: &AppHandle, tunnels: &[TunnelConfig]) -> AppResult<()> {
     let _ = app;
     storage::replace_tunnels(tunnels)
+}
+
+pub fn load_tunnel_groups(app: &AppHandle) -> AppResult<Vec<TunnelGroup>> {
+    let _ = app;
+    Ok(storage::load_settings_doc::<TunnelGroupsConfig>(SettingsDocKey::TunnelGroups)?.groups)
+}
+
+pub fn save_tunnel_groups(app: &AppHandle, groups: &[TunnelGroup]) -> AppResult<()> {
+    let _ = app;
+    storage::save_settings_doc(
+        SettingsDocKey::TunnelGroups,
+        &TunnelGroupsConfig {
+            groups: groups.to_vec(),
+        },
+    )
 }

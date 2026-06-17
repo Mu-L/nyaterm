@@ -46,7 +46,10 @@ pub use password::{
     PasswordsConfig, SavedPassword, load_password_by_id, load_passwords, save_passwords,
 };
 #[allow(unused_imports)]
-pub use proxy::{ProxyConfig, load_proxies, load_proxy_by_id, save_proxies};
+pub use proxy::{
+    ProxyConfig, ProxyGroup, ProxyGroupsConfig, load_proxies, load_proxy_by_id,
+    load_proxy_groups, save_proxies, save_proxy_groups,
+};
 #[allow(unused_imports)]
 pub use quick_command::{
     QuickCommand, QuickCommandCategory, QuickCommandsConfig, load_quick_commands,
@@ -64,7 +67,10 @@ pub use settings::{
     mask_ai_settings, merge_masked_ai_settings, normalize_ai_settings, save_app_settings,
 };
 #[allow(unused_imports)]
-pub use tunnel::{TunnelConfig, TunnelsConfig, load_tunnels, save_tunnels};
+pub use tunnel::{
+    TunnelConfig, TunnelGroup, TunnelGroupsConfig, TunnelsConfig, load_tunnel_groups,
+    load_tunnels, save_tunnel_groups, save_tunnels,
+};
 #[allow(unused_imports)]
 pub use ui::{ActivityBarLayout, RestorablePaneNode, RestorableTab, UiConfig};
 

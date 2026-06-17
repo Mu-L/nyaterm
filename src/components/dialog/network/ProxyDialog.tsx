@@ -18,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { ProxyConfig } from "@/types/global";
+import type { NetworkGroup, ProxyConfig } from "@/types/global";
 
 interface ProxyForm {
   id: string;
@@ -28,6 +28,7 @@ interface ProxyForm {
   port: number;
   username: string;
   password: string;
+  group_id: string;
 }
 
 const DEFAULT_FORM: ProxyForm = {
@@ -38,6 +39,7 @@ const DEFAULT_FORM: ProxyForm = {
   port: 1080,
   username: "",
   password: "",
+  group_id: "",
 };
 
 function toForm(proxy: ProxyConfig | null): ProxyForm {
@@ -50,6 +52,7 @@ function toForm(proxy: ProxyConfig | null): ProxyForm {
     port: proxy.port,
     username: proxy.username ?? "",
     password: "",
+    group_id: proxy.group_id ?? "",
   };
 }
 
@@ -57,12 +60,14 @@ export function ProxyDialog({
   open,
   proxy,
   saving,
+  groups,
   onOpenChange,
   onSave,
 }: {
   open: boolean;
   proxy: ProxyConfig | null;
   saving: boolean;
+  groups: NetworkGroup[];
   onOpenChange: (open: boolean) => void;
   onSave: (proxy: ProxyConfig) => Promise<void>;
 }) {
@@ -100,6 +105,7 @@ export function ProxyDialog({
       port: form.port,
       username: form.username.trim() || undefined,
       password: form.password || undefined,
+      group_id: form.group_id || undefined,
     });
   };
 
@@ -147,6 +153,31 @@ export function ProxyDialog({
                 onChange={(event) => setForm((prev) => ({ ...prev, host: event.target.value }))}
               />
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-sm">{t("network.group")}</Label>
+            <Select
+              value={form.group_id || "__ungrouped__"}
+              onValueChange={(value) =>
+                setForm((prev) => ({
+                  ...prev,
+                  group_id: value === "__ungrouped__" ? "" : value,
+                }))
+              }
+            >
+              <SelectTrigger className="h-9 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__ungrouped__">{t("network.ungrouped")}</SelectItem>
+                {groups.map((group) => (
+                  <SelectItem key={group.id} value={group.id}>
+                    {group.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-1.5">

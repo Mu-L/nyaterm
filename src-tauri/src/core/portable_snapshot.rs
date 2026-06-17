@@ -59,7 +59,11 @@ pub struct PortableSnapshot {
     #[serde(default)]
     pub proxies: Vec<config::ProxyConfig>,
     #[serde(default)]
+    pub proxy_groups: Vec<config::ProxyGroup>,
+    #[serde(default)]
     pub tunnels: Vec<config::TunnelConfig>,
+    #[serde(default)]
+    pub tunnel_groups: Vec<config::TunnelGroup>,
     #[serde(default)]
     pub quick_commands: config::QuickCommandsConfig,
     #[serde(default)]
@@ -104,7 +108,9 @@ struct SnapshotHashInput<'a> {
     credentials: &'a config::CredentialsConfig,
     otp: &'a config::OtpConfig,
     proxies: &'a [config::ProxyConfig],
+    proxy_groups: &'a [config::ProxyGroup],
     tunnels: &'a [config::TunnelConfig],
+    tunnel_groups: &'a [config::TunnelGroup],
     quick_commands: &'a config::QuickCommandsConfig,
     history: &'a [crate::core::history::HistoryEntry],
     master_key_token: &'a Option<String>,
@@ -113,6 +119,24 @@ struct SnapshotHashInput<'a> {
 
 #[derive(Serialize)]
 struct SnapshotRawHashInput<'a> {
+    settings: &'a RawValue,
+    sessions: &'a RawValue,
+    keys: &'a RawValue,
+    passwords: &'a RawValue,
+    credentials: &'a RawValue,
+    otp: &'a RawValue,
+    proxies: &'a RawValue,
+    proxy_groups: &'a RawValue,
+    tunnels: &'a RawValue,
+    tunnel_groups: &'a RawValue,
+    quick_commands: &'a RawValue,
+    history: &'a RawValue,
+    master_key_token: &'a RawValue,
+    known_hosts: &'a RawValue,
+}
+
+#[derive(Serialize)]
+struct LegacySnapshotRawHashInput<'a> {
     settings: &'a RawValue,
     sessions: &'a RawValue,
     keys: &'a RawValue,
@@ -241,7 +265,9 @@ pub fn build_portable_snapshot(
         credentials: config::load_credentials(app)?,
         otp: config::load_otp_entries(app)?,
         proxies: config::load_proxies(app)?,
+        proxy_groups: config::load_proxy_groups(app)?,
         tunnels: config::load_tunnels(app)?,
+        tunnel_groups: config::load_tunnel_groups(app)?,
         quick_commands: config::load_quick_commands(app)?,
         history,
         master_key_token: crate::storage::load_master_key_token()?,
@@ -325,7 +351,9 @@ fn encode_portable_snapshot_redb(snapshot: &PortableSnapshot) -> AppResult<Vec<u
         insert_entity(&mut entities, "credentials", &snapshot.credentials)?;
         insert_entity(&mut entities, "otp", &snapshot.otp)?;
         insert_entity(&mut entities, "proxies", &snapshot.proxies)?;
+        insert_entity(&mut entities, "proxy_groups", &snapshot.proxy_groups)?;
         insert_entity(&mut entities, "tunnels", &snapshot.tunnels)?;
+        insert_entity(&mut entities, "tunnel_groups", &snapshot.tunnel_groups)?;
         insert_entity(&mut entities, "quick_commands", &snapshot.quick_commands)?;
         insert_entity(&mut entities, "history", &snapshot.history)?;
         insert_entity(
@@ -427,7 +455,9 @@ pub async fn apply_portable_snapshot(
     config::save_credentials(app, &snapshot.credentials)?;
     config::save_otp_entries(app, &snapshot.otp)?;
     config::save_proxies(app, &snapshot.proxies)?;
+    config::save_proxy_groups(app, &snapshot.proxy_groups)?;
     config::save_tunnels(app, &snapshot.tunnels)?;
+    config::save_tunnel_groups(app, &snapshot.tunnel_groups)?;
     config::save_quick_commands(app, &snapshot.quick_commands)?;
     crate::storage::replace_command_history_entries(&snapshot.history)?;
 
@@ -490,7 +520,9 @@ fn calculate_payload_hash(snapshot: &PortableSnapshot) -> AppResult<String> {
         credentials: &snapshot.credentials,
         otp: &snapshot.otp,
         proxies: &snapshot.proxies,
+        proxy_groups: &snapshot.proxy_groups,
         tunnels: &snapshot.tunnels,
+        tunnel_groups: &snapshot.tunnel_groups,
         quick_commands: &snapshot.quick_commands,
         history: &snapshot.history,
         master_key_token: &snapshot.master_key_token,
@@ -525,7 +557,9 @@ fn decode_v3_snapshot(
         credentials: read_entity_or_default(entities, "credentials")?,
         otp: read_entity_or_default(entities, "otp")?,
         proxies: read_entity_or_default(entities, "proxies")?,
+        proxy_groups: read_entity_or_default(entities, "proxy_groups")?,
         tunnels: read_entity_or_default(entities, "tunnels")?,
+        tunnel_groups: read_entity_or_default(entities, "tunnel_groups")?,
         quick_commands: read_entity_or_default(entities, "quick_commands")?,
         history: read_entity_or_default(entities, "history")?,
         master_key_token: read_entity_or_default(entities, "master_key_token")?,
@@ -549,7 +583,7 @@ fn calculate_v3_raw_payload_hash(entities: &BTreeMap<String, String>) -> AppResu
     let master_key_token = read_raw_entity(entities, "master_key_token")?;
     let known_hosts = read_raw_entity(entities, "known_hosts")?;
 
-    let payload_bytes = serde_json::to_vec(&SnapshotRawHashInput {
+    let payload_bytes = serde_json::to_vec(&LegacySnapshotRawHashInput {
         settings: settings.as_ref(),
         sessions: sessions.as_ref(),
         keys: keys.as_ref(),
@@ -563,7 +597,29 @@ fn calculate_v3_raw_payload_hash(entities: &BTreeMap<String, String>) -> AppResu
         master_key_token: master_key_token.as_ref(),
         known_hosts: known_hosts.as_ref(),
     })?;
-    Ok(hex::encode(Sha256::digest(&payload_bytes)))
+    let hash = hex::encode(Sha256::digest(&payload_bytes));
+    if entities.contains_key("proxy_groups") || entities.contains_key("tunnel_groups") {
+        let proxy_groups = read_raw_entity(entities, "proxy_groups")?;
+        let tunnel_groups = read_raw_entity(entities, "tunnel_groups")?;
+        let payload_bytes = serde_json::to_vec(&SnapshotRawHashInput {
+            settings: settings.as_ref(),
+            sessions: sessions.as_ref(),
+            keys: keys.as_ref(),
+            passwords: passwords.as_ref(),
+            credentials: credentials.as_ref(),
+            otp: otp.as_ref(),
+            proxies: proxies.as_ref(),
+            proxy_groups: proxy_groups.as_ref(),
+            tunnels: tunnels.as_ref(),
+            tunnel_groups: tunnel_groups.as_ref(),
+            quick_commands: quick_commands.as_ref(),
+            history: history.as_ref(),
+            master_key_token: master_key_token.as_ref(),
+            known_hosts: known_hosts.as_ref(),
+        })?;
+        return Ok(hex::encode(Sha256::digest(&payload_bytes)));
+    }
+    Ok(hash)
 }
 
 #[derive(Deserialize, Default)]
@@ -620,6 +676,8 @@ fn decode_v2_snapshot(
         .map(|raw| serde_json::from_str::<config::TunnelsConfig>(raw).map(|cfg| cfg.tunnels))
         .transpose()?
         .unwrap_or_default();
+    let proxy_groups = parse_v2_json_doc(&json_docs, "proxy-groups")?;
+    let tunnel_groups = parse_v2_json_doc(&json_docs, "tunnel-groups")?;
 
     let mut snapshot = PortableSnapshot {
         schema_version: PORTABLE_SNAPSHOT_SCHEMA_VERSION,
@@ -636,7 +694,9 @@ fn decode_v2_snapshot(
         credentials: parse_v2_json_doc(&json_docs, "credentials")?,
         otp: parse_v2_json_doc(&json_docs, "otp")?,
         proxies,
+        proxy_groups,
         tunnels,
+        tunnel_groups,
         quick_commands: parse_v2_json_doc(&json_docs, "quick-command")?,
         history,
         master_key_token: text_docs.get("master.key").cloned(),
@@ -835,7 +895,9 @@ mod tests {
             credentials: config::CredentialsConfig::default(),
             otp: config::OtpConfig::default(),
             proxies: Vec::new(),
+            proxy_groups: Vec::new(),
             tunnels: Vec::new(),
+            tunnel_groups: Vec::new(),
             quick_commands: config::QuickCommandsConfig::default(),
             history: Vec::new(),
             master_key_token: Some("wrapped".to_string()),

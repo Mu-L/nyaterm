@@ -359,7 +359,9 @@
     "username": "Username",
     "usernameRequired": "Username is required",
     "workingDir": "Work Dir",
-    "workingDirPlaceholder": "e.g. C:\\Projects or ~/workspace"
+    "workingDirPlaceholder": "e.g. C:\\Projects or ~/workspace",
+    "x11Forwarding": "X11 Forwarding",
+    "x11ForwardingDesc": "Allow remote graphical applications to display on your local X server through SSH."
   },
   "error": {
     "reloadApplication": "Reload Application",
@@ -1480,7 +1482,10 @@
     "webdavEndpointRequired": "WebDAV endpoint is required.",
     "windowBehavior": "Window",
     "wordSeparators": "Word Separators",
-    "wordSeparatorsDesc": "Characters that split words on double-click."
+    "wordSeparatorsDesc": "Characters that split words on double-click.",
+    "x11Display": "Local X11 DISPLAY",
+    "x11DisplayDesc": "Requires a local X server. Windows can use VcXsrv/Xming, macOS can use XQuartz, and Linux usually uses Xorg/Xwayland.",
+    "x11DisplayPlaceholder": "Windows: localhost:0 / Linux/macOS: :0"
   },
   "statusBar": {
     "cpuUsage": "CPU Usage",

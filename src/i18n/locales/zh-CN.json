@@ -359,7 +359,9 @@
     "username": "用户名",
     "usernameRequired": "用户名不能为空",
     "workingDir": "工作目录",
-    "workingDirPlaceholder": "例如：C:\\Projects 或 ~/workspace"
+    "workingDirPlaceholder": "例如：C:\\Projects 或 ~/workspace",
+    "x11Forwarding": "X11 转发",
+    "x11ForwardingDesc": "允许远端图形程序通过 SSH 显示到本机 X server。"
   },
   "error": {
     "reloadApplication": "重新加载应用",
@@ -1480,7 +1482,10 @@
     "webdavEndpointRequired": "必须填写 WebDAV 地址。",
     "windowBehavior": "窗口行为",
     "wordSeparators": "单词分隔符",
-    "wordSeparatorsDesc": "双击选中文本时断开单词的字符。"
+    "wordSeparatorsDesc": "双击选中文本时断开单词的字符。",
+    "x11Display": "本地 X11 DISPLAY",
+    "x11DisplayDesc": "需要本机已安装并启动 X server。Windows 可使用 VcXsrv/Xming，macOS 可使用 XQuartz，Linux 通常使用 Xorg/Xwayland。",
+    "x11DisplayPlaceholder": "Windows: localhost:0 / Linux/macOS: :0"
   },
   "statusBar": {
     "cpuUsage": "CPU 占用",

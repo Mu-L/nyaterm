@@ -1184,6 +1184,7 @@
     "githubGistAuth": "GitHub 授权",
     "githubGistAuthDesc": "通过 device flow 连接 GitHub。未填写 Gist ID 时，NyaTerm 会自动创建一个私有 Gist。",
     "githubGistAuthFailed": "GitHub 授权失败。",
+    "githubGistClientIdMissing": "当前构建缺少 GitHub OAuth Client ID。请在构建 NyaTerm 时配置 NYATERM_GITHUB_GIST_CLIENT_ID。",
     "githubGistConnect": "连接 GitHub",
     "githubGistConnected": "GitHub Gist 已连接。",
     "githubGistConnectedAs": "已连接为 {{login}}。",

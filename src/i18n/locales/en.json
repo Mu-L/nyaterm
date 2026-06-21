@@ -1184,6 +1184,7 @@
     "githubGistAuth": "GitHub Authorization",
     "githubGistAuthDesc": "Connect GitHub with device flow. NyaTerm will create a private gist when no gist ID is provided.",
     "githubGistAuthFailed": "GitHub authorization failed.",
+    "githubGistClientIdMissing": "This build is missing the GitHub OAuth Client ID. Rebuild NyaTerm with NYATERM_GITHUB_GIST_CLIENT_ID configured.",
     "githubGistConnect": "Connect GitHub",
     "githubGistConnected": "GitHub Gist connected.",
     "githubGistConnectedAs": "Connected as {{login}}.",

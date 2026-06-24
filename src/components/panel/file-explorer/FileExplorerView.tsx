@@ -666,24 +666,41 @@ function FileExplorer({
 
     let cancelled = false;
     (async () => {
+      const loadRootDirectory = async () => {
+        if (cancelled) return;
+        homeDirRef.current = "";
+        setHomeDir("");
+        await loadDirectory("/");
+      };
+
+      const cachedHome = normalizeDirectoryPath(cached?.homeDir ?? "");
+      if (cachedHome) {
+        homeDirRef.current = cachedHome;
+        setHomeDir(cachedHome);
+        const loaded = await loadDirectory(cachedHome);
+        if (cancelled || loaded) return;
+      }
+
       try {
-        const cachedHome = normalizeDirectoryPath(cached?.homeDir ?? "");
-        if (cachedHome) {
-          homeDirRef.current = cachedHome;
-          setHomeDir(cachedHome);
-          await loadDirectory(cachedHome);
+        const home = normalizeDirectoryPath(
+          await invoke<string>("get_home_dir", { sessionId: activeSessionId }),
+        );
+        if (cancelled) return;
+        if (home) {
+          homeDirRef.current = home;
+          setHomeDir(home);
+          const loaded = await loadDirectory(home);
+          if (cancelled || loaded) {
+            return;
+          }
+        }
+      } catch {
+        if (cancelled) {
           return;
         }
-
-        const home = await invoke<string>("get_home_dir", { sessionId: activeSessionId });
-        if (cancelled) return;
-        homeDirRef.current = home;
-        setHomeDir(home);
-        await loadDirectory(home);
-      } catch {
-        if (cancelled) return;
-        await loadDirectory("~");
       }
+
+      await loadRootDirectory();
     })();
     return () => {
       cancelled = true;

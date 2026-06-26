@@ -5,6 +5,10 @@
 <h1 align="center">NyaTerm</h1>
 
 <p align="center">
+  <em>妮雅</em>
+</p>
+
+<p align="center">
   <strong>基于 Tauri、React 与 Rust 构建的现代远程终端工作区。</strong><br/>
   <a href="https://nyaterm.app"><strong>nyaterm.app</strong></a> ·
   <a href="https://nyaterm.app/docs/"><strong>在线文档</strong></a>

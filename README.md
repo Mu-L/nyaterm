@@ -5,6 +5,10 @@
 <h1 align="center">NyaTerm</h1>
 
 <p align="center">
+  <em>/ˈnjaː tɜːrm/</em>
+</p>
+
+<p align="center">
   <strong>A modern remote terminal workspace built with Tauri, React, and Rust.</strong><br/>
   <a href="https://nyaterm.app"><strong>nyaterm.app</strong></a> ·
   <a href="https://nyaterm.app/docs/"><strong>Documentation</strong></a>

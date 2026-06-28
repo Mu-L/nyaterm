@@ -170,11 +170,6 @@ export default function UpdateDialog({ open, onClose, onUpdateFound }: UpdateDia
     setLocalUpdateInfo(null);
     isUpdating.current = false;
 
-    if (runtimeInfo.portable) {
-      setStatus("manual");
-      return;
-    }
-
     setStatus("checking");
 
     let cancelled = false;
@@ -183,7 +178,7 @@ export default function UpdateDialog({ open, onClose, onUpdateFound }: UpdateDia
         if (cancelled) return;
         if (info) {
           setLocalUpdateInfo(info);
-          setStatus("available");
+          setStatus(runtimeInfo.portable ? "manual" : "available");
           onUpdateFoundRef.current?.(info);
         } else {
           setStatus("idle");
@@ -283,9 +278,22 @@ export default function UpdateDialog({ open, onClose, onUpdateFound }: UpdateDia
                 <span className="block">
                   {t("updater.currentVersion")}: v{currentVersion}
                 </span>
+                {localUpdateInfo && (
+                  <span className="block">
+                    {t("updater.newVersion")}: v{localUpdateInfo.version}
+                  </span>
+                )}
                 <span className="block">{t("updater.portableManualDesc")}</span>
               </DialogDescription>
             </DialogHeader>
+            {localUpdateInfo?.body && (
+              <div className="terminal-scroll max-h-[min(42vh,320px)] min-w-0 max-w-full overflow-y-auto overflow-x-hidden rounded-md border p-3">
+                <p className="mb-1.5 text-xs font-medium text-muted-foreground">
+                  {t("updater.releaseNotes")}
+                </p>
+                <MarkdownContent content={localUpdateInfo.body} />
+              </div>
+            )}
             <DialogFooter>
               <Button variant="outline" size="sm" onClick={onClose}>
                 {t("common.close")}

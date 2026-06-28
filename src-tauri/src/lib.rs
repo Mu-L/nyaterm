@@ -48,11 +48,7 @@ pub fn run() {
         }
     }));
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    let builder = if runtime.portable() {
-        builder
-    } else {
-        builder.plugin(tauri_plugin_updater::Builder::new().build())
-    };
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
 
     let runtime_for_setup = runtime.clone();
     let mut context = tauri::generate_context!();

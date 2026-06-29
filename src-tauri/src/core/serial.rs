@@ -15,7 +15,7 @@ use crate::error::{AppError, AppResult};
 use crate::observability::{StructuredLog, StructuredLogLevel, log_event, log_rate_limited};
 use serialport::{DataBits, FlowControl, Parity, SerialPort, StopBits};
 use std::io::{Read, Write};
-use std::sync::{Arc, Mutex, mpsc as std_mpsc};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
@@ -110,6 +110,7 @@ pub async fn create_serial_session(
         }
     };
     let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<SessionCommand>();
+    let reader_shutdown_tx = cmd_tx.clone();
 
     let session_info = SessionInfo {
         id: session_id.clone(),
@@ -142,6 +143,7 @@ pub async fn create_serial_session(
             sid,
             mgr,
             cmd_rx,
+            reader_shutdown_tx,
             rt_handle,
             config,
             connection_id,
@@ -159,7 +161,7 @@ fn open_serial_port(config: &SerialConfig) -> serialport::Result<Box<dyn SerialP
         .parity(parse_parity(&config.parity))
         .stop_bits(parse_stop_bits(&config.stop_bits))
         .flow_control(FlowControl::None)
-        .timeout(Duration::from_millis(100))
+        .timeout(Duration::from_millis(10))
         .open()
 }
 
@@ -193,6 +195,7 @@ fn serial_session_thread(
     session_id: String,
     manager: Arc<SessionManager>,
     mut cmd_rx: mpsc::UnboundedReceiver<SessionCommand>,
+    reader_shutdown_tx: mpsc::UnboundedSender<SessionCommand>,
     rt_handle: tokio::runtime::Handle,
     config: SerialConfig,
     connection_id: Option<String>,
@@ -229,7 +232,6 @@ fn serial_session_thread(
 
     let reader_running = Arc::new(std::sync::atomic::AtomicBool::new(true));
     let reader_flag = reader_running.clone();
-    let (reader_done_tx, reader_done_rx) = std_mpsc::channel::<()>();
 
     std::thread::spawn(move || {
         let mut buf = [0u8; 4096];
@@ -364,25 +366,11 @@ fn serial_session_thread(
             }
         }
         output_reader.close();
-        let _ = reader_done_tx.send(());
+        let _ = reader_shutdown_tx.send(SessionCommand::Close);
     });
 
     // Command loop
-    loop {
-        match reader_done_rx.try_recv() {
-            Ok(()) | Err(std_mpsc::TryRecvError::Disconnected) => break,
-            Err(std_mpsc::TryRecvError::Empty) => {}
-        }
-
-        let cmd = match cmd_rx.try_recv() {
-            Ok(cmd) => cmd,
-            Err(mpsc::error::TryRecvError::Disconnected) => break,
-            Err(mpsc::error::TryRecvError::Empty) => {
-                std::thread::sleep(Duration::from_millis(20));
-                continue;
-            }
-        };
-
+    while let Some(cmd) = cmd_rx.blocking_recv() {
         match cmd {
             SessionCommand::Attach => {
                 output.attach();

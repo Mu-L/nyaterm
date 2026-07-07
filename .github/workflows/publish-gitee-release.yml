@@ -44,7 +44,7 @@ env:
 jobs:
   publish-gitee-release:
     name: Create or update Gitee Release
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, gitee-release]
 
     steps:
       - name: Resolve release tag

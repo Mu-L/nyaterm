@@ -247,6 +247,10 @@ textarea,
   background-color: transparent !important;
 }
 
+.nyaterm-wallpaper-shell[data-wallpaper-enabled="true"] .nyaterm-wallpaper-terminal-surface {
+  background-color: var(--df-bg-terminal) !important;
+}
+
 .nyaterm-wallpaper-shell[data-wallpaper-enabled="true"] .nyaterm-wallpaper-card {
   background-color: color-mix(in srgb, var(--df-bg) 55%, transparent) !important;
   backdrop-filter: blur(12px) saturate(1.2);

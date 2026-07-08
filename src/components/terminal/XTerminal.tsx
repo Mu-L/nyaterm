@@ -2365,7 +2365,7 @@ export default function XTerminal({
 
   return (
     <div
-      className="h-full w-full relative flex"
+      className="nyaterm-wallpaper-transparent-surface h-full w-full relative flex"
       style={{ display: visible ? "flex" : "none", backgroundColor: terminalBackground }}
     >
       {showGutter && terminalReady && (
@@ -2381,7 +2381,7 @@ export default function XTerminal({
         />
       )}
       <div
-        className="flex-1 min-w-0 h-full relative"
+        className="nyaterm-wallpaper-transparent-surface flex-1 min-w-0 h-full relative"
         style={{ backgroundColor: terminalBackground }}
       >
         <TerminalContextMenu
@@ -2391,13 +2391,15 @@ export default function XTerminal({
           onPasteClipboard={pasteClipboard}
         >
           <div
-            className={`h-full w-full ${showContentPadding ? "pl-2" : ""}`}
+            className={`nyaterm-wallpaper-transparent-surface h-full w-full ${
+              showContentPadding ? "pl-2" : ""
+            }`}
             style={{ backgroundColor: terminalBackground }}
           >
             <div
               ref={containerRef}
               data-terminal-root="true"
-              className="h-full w-full"
+              className="nyaterm-wallpaper-transparent-surface h-full w-full"
               style={{ backgroundColor: terminalBackground }}
             />
           </div>

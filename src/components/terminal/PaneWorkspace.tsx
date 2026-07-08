@@ -172,7 +172,7 @@ function PaneNodeView({
 
   return (
     <div
-      className={`relative h-full w-full overflow-hidden ${
+      className={`nyaterm-wallpaper-terminal-surface relative h-full w-full overflow-hidden ${
         showChrome ? "rounded-sm border" : ""
       } ${showChrome && isActive ? "ring-1 ring-primary/60" : ""}`}
       style={{

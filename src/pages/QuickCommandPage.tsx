@@ -99,7 +99,7 @@ export default function QuickCommandPage() {
     const cmd: QuickCommand = {
       id: initialData?.id || `qc-${now}`,
       label: label.trim(),
-      command: command.trim(),
+      command,
       category_id: finalCategoryId,
       description: description.trim() || undefined,
       color_tag: colorTag === "default" && !iconTag ? undefined : colorTag,

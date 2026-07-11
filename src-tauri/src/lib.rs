@@ -18,6 +18,7 @@ mod window_state;
 use std::sync::Arc;
 
 use crate::cmd::app::AppLockState;
+use crate::cmd::docker::DockerSudoManager;
 use crate::core::ai::AgentApprovalManager;
 use crate::core::sftp::TransferDuplicateManager;
 use crate::core::ssh::{
@@ -40,6 +41,7 @@ pub fn run() {
     let cloud_sync_manager = Arc::new(CloudSyncManager::new());
     let agent_approval_manager = Arc::new(AgentApprovalManager::new());
     let transfer_duplicate_manager = Arc::new(TransferDuplicateManager::new());
+    let docker_sudo_manager = Arc::new(DockerSudoManager::new());
     let app_lock_state = AppLockState::default();
 
     let builder = tauri::Builder::default();
@@ -71,6 +73,7 @@ pub fn run() {
         .manage(cloud_sync_manager.clone())
         .manage(agent_approval_manager.clone())
         .manage(transfer_duplicate_manager.clone())
+        .manage(docker_sudo_manager.clone())
         .manage(app_lock_state)
         .setup(move |a| {
             app::setup(
@@ -241,6 +244,11 @@ pub fn run() {
             cmd::docker::docker_compose_action,
             cmd::docker::get_docker_compose_services,
             cmd::docker::docker_compose_service_action,
+            cmd::docker::submit_docker_sudo_password,
+            cmd::docker::cancel_docker_sudo_password,
+            cmd::docker::prepare_docker_container_logs_command,
+            cmd::docker::prepare_docker_container_shell_command,
+            cmd::docker::prepare_docker_compose_service_logs_command,
             cmd::tunnel::get_tunnels,
             cmd::tunnel::get_tunnel_groups,
             cmd::tunnel::save_tunnel,

@@ -20,7 +20,18 @@ pub async fn exec_ssh_session_command(
     timeout: Duration,
 ) -> AppResult<RemoteCommandOutput> {
     let ssh_handle = get_ssh_handle(manager, session_id).await?;
-    exec_ssh_command(&ssh_handle, command, timeout).await
+    exec_ssh_command(&ssh_handle, command, None, timeout).await
+}
+
+pub async fn exec_ssh_session_command_with_stdin(
+    manager: &Arc<SessionManager>,
+    session_id: &str,
+    command: &[u8],
+    stdin: &[u8],
+    timeout: Duration,
+) -> AppResult<RemoteCommandOutput> {
+    let ssh_handle = get_ssh_handle(manager, session_id).await?;
+    exec_ssh_command(&ssh_handle, command, Some(stdin), timeout).await
 }
 
 async fn get_ssh_handle(
@@ -44,6 +55,7 @@ async fn get_ssh_handle(
 async fn exec_ssh_command(
     ssh_handle: &Arc<SshConnectionHandles>,
     command: &[u8],
+    stdin: Option<&[u8]>,
     timeout: Duration,
 ) -> AppResult<RemoteCommandOutput> {
     let handle_mtx = ssh_handle.target_handle();
@@ -62,6 +74,17 @@ async fn exec_ssh_command(
             .await
             .map_err(|e| AppError::Channel(format!("Failed to execute command: {e}")))?;
 
+        if let Some(stdin) = stdin {
+            channel
+                .data(stdin)
+                .await
+                .map_err(|e| AppError::Channel(format!("Failed to send command stdin: {e}")))?;
+            channel
+                .eof()
+                .await
+                .map_err(|e| AppError::Channel(format!("Failed to close command stdin: {e}")))?;
+        }
+
         let mut stdout = String::new();
         let mut stderr = String::new();
         let mut exit_status = None;
@@ -79,7 +102,18 @@ async fn exec_ssh_command(
                 }) => {
                     exit_status = Some(status);
                 }
-                Some(ChannelMsg::Eof) | None => break,
+                Some(ChannelMsg::Eof) => {
+                    if exit_status.is_none() {
+                        if let Some(ChannelMsg::ExitStatus {
+                            exit_status: status,
+                        }) = channel.wait().await
+                        {
+                            exit_status = Some(status);
+                        }
+                    }
+                    break;
+                }
+                None => break,
                 _ => {}
             }
         }

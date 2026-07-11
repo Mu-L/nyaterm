@@ -57,8 +57,6 @@ const COMPOSE_SERVICE_ROW_HEIGHT = 58;
 const TAB_GAP_PX = 4;
 const TAB_LIST_PADDING_PX = 8;
 const MIN_TAB_WIDTH_PX = 62;
-const SHELL_SELECTOR =
-  "if command -v bash >/dev/null 2>&1; then exec bash; elif command -v zsh >/dev/null 2>&1; then exec zsh; elif command -v fish >/dev/null 2>&1; then exec fish; elif command -v ash >/dev/null 2>&1; then exec ash; else exec sh; fi";
 
 type DockerStateKind = "danger" | "running" | "stopped" | "transition" | "unknown";
 
@@ -87,6 +85,11 @@ interface ComposeServicesState {
   error: string | null;
   loading: boolean;
   services: DockerComposeService[] | null;
+}
+
+interface PreparedDockerTerminalCommand {
+  command: string;
+  stdin?: string | null;
 }
 
 export default function DockerManager({ activeSessionId }: DockerManagerProps) {
@@ -375,9 +378,10 @@ export default function DockerManager({ activeSessionId }: DockerManagerProps) {
   );
 
   const executeTerminalCommand = useCallback(
-    async (command: string) => {
+    async (prepared: PreparedDockerTerminalCommand) => {
       if (!activeSessionId) return;
       try {
+        const { command, stdin } = prepared;
         const provider = getTerminalContextProvider(activeSessionId);
         provider?.focus();
         if (provider?.executeCommand) {
@@ -386,6 +390,12 @@ export default function DockerManager({ activeSessionId }: DockerManagerProps) {
           await sendSessionInput(activeSessionId, buildTerminalCommandInput(command), {
             preview: { kind: "reset" },
             registerSubmission: command,
+          });
+        }
+        if (stdin) {
+          await sendSessionInput(activeSessionId, stdin, {
+            preview: null,
+            registerSubmission: null,
           });
         }
         toast.success(t("dockerManager.commandSent"));
@@ -397,17 +407,35 @@ export default function DockerManager({ activeSessionId }: DockerManagerProps) {
   );
 
   const sendContainerLogs = useCallback(
-    (container: DockerContainer) =>
-      executeTerminalCommand(`docker logs -f --tail 100 ${shellQuote(container.id)}`),
-    [executeTerminalCommand],
+    async (container: DockerContainer) => {
+      if (!activeSessionId) return;
+      try {
+        const prepared = await invoke<PreparedDockerTerminalCommand>(
+          "prepare_docker_container_logs_command",
+          { sessionId: activeSessionId, containerId: container.id, tail: 100 },
+        );
+        await executeTerminalCommand(prepared);
+      } catch (error) {
+        toast.error(getErrorMessage(error));
+      }
+    },
+    [activeSessionId, executeTerminalCommand],
   );
 
   const enterContainer = useCallback(
-    (containerId: string) =>
-      executeTerminalCommand(
-        `docker exec -it ${shellQuote(containerId)} sh -lc ${shellQuote(SHELL_SELECTOR)}`,
-      ),
-    [executeTerminalCommand],
+    async (containerId: string) => {
+      if (!activeSessionId) return;
+      try {
+        const prepared = await invoke<PreparedDockerTerminalCommand>(
+          "prepare_docker_container_shell_command",
+          { sessionId: activeSessionId, containerId },
+        );
+        await executeTerminalCommand(prepared);
+      } catch (error) {
+        toast.error(getErrorMessage(error));
+      }
+    },
+    [activeSessionId, executeTerminalCommand],
   );
 
   const loadComposeServices = useCallback(
@@ -482,11 +510,25 @@ export default function DockerManager({ activeSessionId }: DockerManagerProps) {
   );
 
   const sendComposeServiceLogs = useCallback(
-    (project: DockerComposeProject, service: DockerComposeService) =>
-      executeTerminalCommand(
-        `${buildComposeBaseCommand(project)} logs -f --tail 100 ${shellQuote(service.name)}`,
-      ),
-    [executeTerminalCommand],
+    async (project: DockerComposeProject, service: DockerComposeService) => {
+      if (!activeSessionId) return;
+      try {
+        const prepared = await invoke<PreparedDockerTerminalCommand>(
+          "prepare_docker_compose_service_logs_command",
+          {
+            sessionId: activeSessionId,
+            projectName: project.name,
+            configFiles: project.config_files,
+            serviceName: service.name,
+            tail: 100,
+          },
+        );
+        await executeTerminalCommand(prepared);
+      } catch (error) {
+        toast.error(getErrorMessage(error));
+      }
+    },
+    [activeSessionId, executeTerminalCommand],
   );
 
   const enterComposeService = useCallback(
@@ -979,26 +1021,11 @@ function getComposeProjectRowHeight(
   );
 }
 
-function buildComposeBaseCommand(project: DockerComposeProject) {
-  const files = project.config_files
-    .split(",")
-    .map((file) => file.trim())
-    .filter(Boolean)
-    .map((file) => `-f ${shellQuote(file)}`)
-    .join(" ");
-  return ["docker compose", files, "-p", shellQuote(project.name)].filter(Boolean).join(" ");
-}
-
 function getFirstRunningComposeContainer(service: DockerComposeService) {
   const containers = [...service.containers]
     .filter((container) => container.state.toLowerCase() === "running")
     .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id));
   return containers[0];
-}
-
-function shellQuote(value: string) {
-  if (!value) return "''";
-  return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
 function getOverviewSummary(overview: RemoteDockerOverview | null) {

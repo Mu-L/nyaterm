@@ -15,7 +15,7 @@ pub(crate) use auth::load_saved_ssh_config;
 pub use auth::{PendingAuthManager, PendingSshAuthManager, SshAuthResponse};
 pub use client::{HostKeyVerifyManager, SupportedSshAlgorithms, get_supported_ssh_algorithms};
 pub(crate) use client::{
-    SshConfig, SshConnectionHandles, SshHandle, SshRawHandle, SshStartupCommand,
+    SshAuth, SshConfig, SshConnectionHandles, SshHandle, SshRawHandle, SshStartupCommand,
     validate_ssh_algorithm_preferences,
 };
 pub use session::{create_multiplexed_ssh_session, create_ssh_handle, create_ssh_session};

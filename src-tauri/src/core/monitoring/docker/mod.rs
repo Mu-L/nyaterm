@@ -11,8 +11,8 @@ pub use parse::{
     parse_docker_volumes_output,
 };
 pub use scripts::{
-    DOCKER_COMPOSE_PROJECTS_SCRIPT, DOCKER_IMAGES_SCRIPT, DOCKER_NETWORKS_SCRIPT,
-    DOCKER_OVERVIEW_SCRIPT, DOCKER_VOLUMES_SCRIPT, docker_container_details_script,
+    docker_compose_projects_script, docker_container_details_script, docker_images_script,
+    docker_networks_script, docker_overview_script, docker_volumes_script,
 };
 pub use types::{
     DockerComposeProject, DockerComposeService, DockerContainerDetails, DockerContainerStats,

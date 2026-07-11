@@ -119,6 +119,10 @@ export function OtpCodePanel({
 
   const showGenerateButton = isHotp;
   const showProgress = isTotp && hasCode;
+  const isDialog = variant === "dialog";
+  const compactButtonClassName = isDialog ? "h-8 text-xs" : "h-7 w-7 p-0";
+  const compactIconClassName = isDialog ? "mr-1 text-[0.875rem]" : "text-[0.875rem]";
+  const copyLabel = copied ? t("otp.copied") : t("otp.copyCode");
   const displayCode = hasCode ? formatOtpCode(code) : "--- ---";
   const statusText = showProgress
     ? t("otp.expiresIn", { seconds: remaining })
@@ -143,16 +147,22 @@ export function OtpCodePanel({
           <Button
             variant="outline"
             size="sm"
-            className="h-8 text-xs"
+            className={isDialog ? "h-8 text-xs" : "h-8 w-8 p-0"}
             onClick={() => void fetchCode()}
             disabled={loading}
+            title={t("otp.generateCode")}
+            aria-label={t("otp.generateCode")}
           >
             {loading ? (
-              <MdRefresh className="mr-1 text-[0.875rem] animate-spin" />
+              <MdRefresh
+                className={
+                  isDialog ? "mr-1 text-[0.875rem] animate-spin" : "text-[0.875rem] animate-spin"
+                }
+              />
             ) : (
-              <MdRefresh className="mr-1 text-[0.875rem]" />
+              <MdRefresh className={isDialog ? "mr-1 text-[0.875rem]" : "text-[0.875rem]"} />
             )}
-            {t("otp.generateCode")}
+            {isDialog ? t("otp.generateCode") : null}
           </Button>
         </div>
       ) : (
@@ -165,7 +175,23 @@ export function OtpCodePanel({
               <div className="mt-1 text-[0.6875rem] text-muted-foreground">{statusText}</div>
             </div>
 
-            {showProgress ? (
+            {!isDialog && hasCode ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 w-8 shrink-0 p-0"
+                onClick={copyCode}
+                disabled={!hasCode}
+                title={copyLabel}
+                aria-label={copyLabel}
+              >
+                {copied ? (
+                  <MdCheck className="text-[0.875rem]" />
+                ) : (
+                  <MdContentCopy className="text-[0.875rem]" />
+                )}
+              </Button>
+            ) : showProgress ? (
               <div className="shrink-0 text-right">
                 <div className="text-[1.15rem] font-semibold tabular-nums text-primary">
                   {remaining}
@@ -186,52 +212,68 @@ export function OtpCodePanel({
             </div>
           ) : null}
 
-          <div
-            className={`flex gap-2 ${variant === "dialog" ? "flex-col sm:flex-row sm:flex-wrap" : "flex-wrap"}`}
-          >
-            <Button
-              variant="outline"
-              size="sm"
-              className={variant === "dialog" ? "h-8 text-xs" : "h-7 text-xs"}
-              onClick={copyCode}
-              disabled={!hasCode}
+          {isDialog || showGenerateButton || onSendToInput ? (
+            <div
+              className={`flex gap-2 ${variant === "dialog" ? "flex-col sm:flex-row sm:flex-wrap" : "flex-wrap"}`}
             >
-              {copied ? (
-                <MdCheck className="mr-1 text-[0.875rem]" />
-              ) : (
-                <MdContentCopy className="mr-1 text-[0.875rem]" />
-              )}
-              {copied ? t("otp.copied") : t("otp.copyCode")}
-            </Button>
+              {isDialog ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={compactButtonClassName}
+                  onClick={copyCode}
+                  disabled={!hasCode}
+                  title={copyLabel}
+                  aria-label={copyLabel}
+                >
+                  {copied ? (
+                    <MdCheck className={compactIconClassName} />
+                  ) : (
+                    <MdContentCopy className={compactIconClassName} />
+                  )}
+                  {copied ? t("otp.copied") : t("otp.copyCode")}
+                </Button>
+              ) : null}
 
-            {showGenerateButton ? (
-              <Button
-                variant="outline"
-                size="sm"
-                className={variant === "dialog" ? "h-8 text-xs" : "h-7 text-xs"}
-                onClick={() => void fetchCode()}
-                disabled={loading}
-              >
-                {loading ? (
-                  <MdRefresh className="mr-1 text-[0.875rem] animate-spin" />
-                ) : (
-                  <MdRefresh className="mr-1 text-[0.875rem]" />
-                )}
-                {t("otp.generateCode")}
-              </Button>
-            ) : null}
+              {showGenerateButton ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={compactButtonClassName}
+                  onClick={() => void fetchCode()}
+                  disabled={loading}
+                  title={t("otp.generateCode")}
+                  aria-label={t("otp.generateCode")}
+                >
+                  {loading ? (
+                    <MdRefresh
+                      className={
+                        isDialog
+                          ? "mr-1 text-[0.875rem] animate-spin"
+                          : "text-[0.875rem] animate-spin"
+                      }
+                    />
+                  ) : (
+                    <MdRefresh className={compactIconClassName} />
+                  )}
+                  {isDialog ? t("otp.generateCode") : null}
+                </Button>
+              ) : null}
 
-            {onSendToInput ? (
-              <Button
-                size="sm"
-                className={variant === "dialog" ? "h-8 text-xs sm:ml-auto" : "h-7 text-xs"}
-                onClick={() => onSendToInput(code)}
-                disabled={!hasCode}
-              >
-                {t("otp.sendToInput")}
-              </Button>
-            ) : null}
-          </div>
+              {isDialog && onSendToInput ? (
+                <Button
+                  size="sm"
+                  className="h-8 text-xs sm:ml-auto"
+                  onClick={() => onSendToInput(code)}
+                  disabled={!hasCode}
+                  title={t("otp.sendToInput")}
+                  aria-label={t("otp.sendToInput")}
+                >
+                  {t("otp.sendToInput")}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
         </>
       )}
     </div>

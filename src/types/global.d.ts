@@ -404,6 +404,8 @@ export interface UiConfig {
   right_open_panels: string[];
   /** Relative height weight per panel id for stacked multi-open panels. */
   panel_stack_sizes: Record<string, number>;
+  network_panel_active_tab?: "tunnel" | "proxy";
+  security_auth_panel_active_tab?: "keys" | "passwords" | "otp" | "credentials";
   show_quick_cmd_bar: boolean;
   show_serial_send_panel: boolean;
   serial_send_height: number;

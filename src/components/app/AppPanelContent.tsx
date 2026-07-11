@@ -92,7 +92,7 @@ export default function AppPanelContent({
       case "network":
         return <NetworkPanel />;
       case "securityAuth":
-        return <SecurityAuthPanel />;
+        return <SecurityAuthPanel activeSessionId={activeSessionId} />;
       case "syncBackupHistory":
         return <SyncBackupHistoryPanel />;
       case "savedConnections":

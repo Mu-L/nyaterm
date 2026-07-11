@@ -1,3 +1,4 @@
+import { emit } from "@tauri-apps/api/event";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,6 +9,7 @@ import {
   MdEdit,
   MdQrCodeScanner,
   MdRefresh,
+  MdSend,
   MdVisibility,
   MdVisibilityOff,
 } from "react-icons/md";
@@ -35,9 +37,11 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { invoke } from "@/lib/invoke";
-import type { OtpEntry } from "@/types/global";
+import { sendSessionInput } from "@/lib/sessionInput";
+import type { OtpCodeResult, OtpEntry } from "@/types/global";
 
 interface OtpManagementTabProps {
+  activeSessionId?: string | null;
   onCountChange?: (count: number) => void;
 }
 
@@ -188,7 +192,7 @@ function OtpEditor({
   );
 }
 
-export function OtpManagementTab({ onCountChange }: OtpManagementTabProps) {
+export function OtpManagementTab({ activeSessionId = null, onCountChange }: OtpManagementTabProps) {
   const { t } = useTranslation();
   const [entries, setEntries] = useState<OtpEntry[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -357,6 +361,26 @@ export function OtpManagementTab({ onCountChange }: OtpManagementTabProps) {
     });
   }, []);
 
+  const handleSendToTerminal = useCallback(
+    async (entry: OtpEntry) => {
+      if (!activeSessionId) {
+        return;
+      }
+
+      try {
+        const result = await invoke<OtpCodeResult>("generate_otp_code", { id: entry.id });
+        await sendSessionInput(activeSessionId, result.code);
+        await emit(`focus-terminal-${activeSessionId}`);
+        if (entry.otp_type === "hotp") {
+          await loadEntries();
+        }
+      } catch (error) {
+        toast.error(t("otpManager.sendToTerminalFailed"), { description: String(error) });
+      }
+    },
+    [activeSessionId, loadEntries, t],
+  );
+
   const actionsDisabled = editingId !== null || qrImporting;
 
   return (
@@ -368,26 +392,28 @@ export function OtpManagementTab({ onCountChange }: OtpManagementTabProps) {
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 px-2 text-xs text-primary"
+              className="h-7 w-7 p-0 text-primary"
               onClick={() => void handleImportQr()}
               disabled={actionsDisabled}
               title={t("otpManager.scanQr")}
+              aria-label={t("otpManager.scanQr")}
             >
               {qrImporting ? (
-                <MdRefresh className="mr-1 text-base animate-spin" />
+                <MdRefresh className="text-base animate-spin" />
               ) : (
-                <MdQrCodeScanner className="mr-1 text-base" />
+                <MdQrCodeScanner className="text-base" />
               )}
-              {qrImporting ? t("otpManager.scanningQr") : t("otpManager.scanQr")}
             </Button>
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 px-2 text-xs text-primary"
+              className="h-7 w-7 p-0 text-primary"
               onClick={handleAdd}
               disabled={actionsDisabled}
+              title={t("otpManager.add")}
+              aria-label={t("otpManager.add")}
             >
-              <MdAdd className="mr-1 text-base" /> {t("otpManager.add")}
+              <MdAdd className="text-base" />
             </Button>
           </div>
         </div>
@@ -436,45 +462,62 @@ export function OtpManagementTab({ onCountChange }: OtpManagementTabProps) {
                           {entry.username}
                         </div>
 
-                        <div className="mt-2 flex flex-wrap items-center gap-1">
+                        <div className="mt-2 grid grid-cols-4 items-center gap-1">
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-7 px-2 text-[0.6875rem] font-medium text-muted-foreground hover:text-foreground"
+                            className="h-7 w-full p-0 text-muted-foreground hover:text-foreground"
                             onClick={() => toggleCodeVisibility(entry.id)}
                             disabled={editingId !== null}
                             title={
                               codeVisible ? t("otpManager.hideCodes") : t("otpManager.showCodes")
                             }
+                            aria-label={
+                              codeVisible ? t("otpManager.hideCodes") : t("otpManager.showCodes")
+                            }
                           >
                             {codeVisible ? (
-                              <MdVisibilityOff className="mr-1 text-sm" />
+                              <MdVisibilityOff className="text-sm" />
                             ) : (
-                              <MdVisibility className="mr-1 text-sm" />
+                              <MdVisibility className="text-sm" />
                             )}
-                            {codeVisible ? t("otpManager.hide") : t("otpManager.view")}
                           </Button>
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-7 px-2 text-[0.6875rem] font-medium text-muted-foreground hover:text-foreground"
+                            className="h-7 w-full p-0 text-muted-foreground hover:text-foreground"
                             onClick={() => {
                               void handleEdit(entry);
                             }}
                             disabled={editingId !== null}
+                            title={t("common.edit")}
+                            aria-label={t("common.edit")}
                           >
-                            <MdEdit className="mr-1 text-sm" />
-                            {t("common.edit")}
+                            <MdEdit className="text-sm" />
                           </Button>
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-7 px-2 text-[0.6875rem] font-medium text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            className="h-7 w-full p-0 text-muted-foreground hover:text-foreground"
+                            onClick={() => {
+                              void handleSendToTerminal(entry);
+                            }}
+                            disabled={editingId !== null || !activeSessionId}
+                            title={t("otp.sendToTerminal")}
+                            aria-label={t("otp.sendToTerminal")}
+                          >
+                            <MdSend className="text-sm" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-full p-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
                             onClick={() => setDeletingEntry(entry)}
                             disabled={editingId !== null}
+                            title={t("common.delete")}
+                            aria-label={t("common.delete")}
                           >
-                            <MdDelete className="mr-1 text-sm" />
-                            {t("common.delete")}
+                            <MdDelete className="text-sm" />
                           </Button>
                         </div>
                       </div>

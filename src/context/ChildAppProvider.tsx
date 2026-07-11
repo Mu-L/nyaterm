@@ -148,6 +148,8 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
     left_open_panels: [],
     right_open_panels: [],
     panel_stack_sizes: {},
+    network_panel_active_tab: "tunnel",
+    security_auth_panel_active_tab: "keys",
     show_quick_cmd_bar: true,
     show_serial_send_panel: false,
     serial_send_height: 180,

@@ -6,12 +6,22 @@ import { KeyManagementTab } from "@/components/panel/security-auth/KeyManagement
 import { OtpManagementTab } from "@/components/panel/security-auth/OtpManagementTab";
 import { PasswordManagementTab } from "@/components/panel/security-auth/PasswordManagementTab";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useApp } from "@/context/AppContext";
 
 type SecurityAuthTab = "keys" | "passwords" | "credentials" | "otp";
 
-export default function SecurityAuthPanel() {
+function resolveSecurityAuthTab(value: string | undefined): SecurityAuthTab {
+  return value === "passwords" || value === "credentials" || value === "otp" ? value : "keys";
+}
+
+interface SecurityAuthPanelProps {
+  activeSessionId?: string | null;
+}
+
+export default function SecurityAuthPanel({ activeSessionId = null }: SecurityAuthPanelProps) {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<SecurityAuthTab>("keys");
+  const { appSettings, updateUi } = useApp();
+  const activeTab = resolveSecurityAuthTab(appSettings.ui.security_auth_panel_active_tab);
   const [keyCount, setKeyCount] = useState(0);
   const [passwordCount, setPasswordCount] = useState(0);
   const [credentialCount, setCredentialCount] = useState(0);
@@ -28,7 +38,7 @@ export default function SecurityAuthPanel() {
           : otpCount;
 
   const handleTabChange = (value: string) => {
-    setActiveTab(value as SecurityAuthTab);
+    updateUi({ security_auth_panel_active_tab: resolveSecurityAuthTab(value) });
   };
 
   return (
@@ -93,7 +103,7 @@ export default function SecurityAuthPanel() {
             value="otp"
             className="mt-3 min-h-0 overflow-y-auto px-3 pb-3 terminal-scroll"
           >
-            <OtpManagementTab onCountChange={setOtpCount} />
+            <OtpManagementTab activeSessionId={activeSessionId} onCountChange={setOtpCount} />
           </TabsContent>
         </Tabs>
       </div>

@@ -481,8 +481,9 @@ function DeleteNetworkGroupDialog({
 
 export default function NetworkPanel() {
   const { t } = useTranslation();
-  const { savedConnections, savedGroups } = useApp();
-  const [activeTab, setActiveTab] = useState<NetworkTab>("tunnel");
+  const { appSettings, savedConnections, savedGroups, updateUi } = useApp();
+  const activeTab: NetworkTab =
+    appSettings.ui.network_panel_active_tab === "proxy" ? "proxy" : "tunnel";
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
 
   const [proxies, setProxies] = useState<ProxyConfig[]>([]);
@@ -753,7 +754,9 @@ export default function NetworkPanel() {
       <div className="flex-1 overflow-y-auto p-3 terminal-scroll">
         <Tabs
           value={activeTab}
-          onValueChange={(value) => setActiveTab(value as NetworkTab)}
+          onValueChange={(value) => {
+            updateUi({ network_panel_active_tab: value === "proxy" ? "proxy" : "tunnel" });
+          }}
           className="w-full"
         >
           <TabsList className="grid h-8 w-full grid-cols-2">

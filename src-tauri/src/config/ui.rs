@@ -236,6 +236,10 @@ pub struct UiConfig {
     pub right_open_panels: Vec<String>,
     #[serde(default)]
     pub panel_stack_sizes: HashMap<String, f64>,
+    #[serde(default = "default_network_panel_active_tab")]
+    pub network_panel_active_tab: String,
+    #[serde(default = "default_security_auth_panel_active_tab")]
+    pub security_auth_panel_active_tab: String,
     #[serde(default = "default_true_fn")]
     pub show_quick_cmd_bar: bool,
     #[serde(default = "default_false")]
@@ -308,6 +312,14 @@ fn default_active_right_panel() -> Option<String> {
     Some("savedConnections".to_string())
 }
 
+fn default_network_panel_active_tab() -> String {
+    "tunnel".to_string()
+}
+
+fn default_security_auth_panel_active_tab() -> String {
+    "keys".to_string()
+}
+
 fn default_true_fn() -> bool {
     true
 }
@@ -363,6 +375,8 @@ impl Default for UiConfig {
             left_open_panels: vec![],
             right_open_panels: vec![],
             panel_stack_sizes: HashMap::new(),
+            network_panel_active_tab: default_network_panel_active_tab(),
+            security_auth_panel_active_tab: default_security_auth_panel_active_tab(),
             show_quick_cmd_bar: true,
             show_serial_send_panel: false,
             serial_send_height: default_serial_send_height(),

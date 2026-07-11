@@ -251,6 +251,8 @@ fi;
 
 [ "$found_net" -eq 1 ] || printf "NETWORK\t-\t-\t0\t0\n";
 
+: >"$diskf";
+
 if command -v findmnt >/dev/null 2>&1; then
   findmnt -b -rn -o SOURCE,TARGET,FSTYPE,SIZE,AVAIL,USE% 2>/dev/null | awk '"'"'
   BEGIN {
@@ -275,7 +277,9 @@ if command -v findmnt >/dev/null 2>&1; then
     printf "%s\t%s\t%s\t%s\t%s\n", src, mp, total, avail, usep;
   }
   '"'"' >"$diskf";
-elif command -v df >/dev/null 2>&1; then
+fi;
+
+if [ ! -s "$diskf" ] && command -v df >/dev/null 2>&1; then
   df -B1 -P 2>/dev/null | awk '"'"'
   BEGIN {
     OFS="\t";
@@ -296,8 +300,6 @@ elif command -v df >/dev/null 2>&1; then
     printf "%s\t%s\t%s\t%s\t%s\n", src, mp, total, avail, usep;
   }
   '"'"' >"$diskf";
-else
-  : >"$diskf";
 fi;
 
 if [ -s "$diskf" ]; then

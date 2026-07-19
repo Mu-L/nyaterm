@@ -282,6 +282,8 @@ export default function XTerminal({
   const doFindRef = useRef<(selection?: string) => void>(() => {});
   const pasteTextRef = useRef<(text: string, options?: { skipDialog?: boolean }) => void>(() => {});
   const disconnectedRef = useRef(false);
+  const disconnectedNoticeShownRef = useRef(false);
+  const disconnectedCloseRequestedRef = useRef(false);
   const reconnectingRef = useRef(false);
   const preservedReconnectContentRef = useRef<string | null>(null);
   const outputWriteQueueRef = useRef(Promise.resolve());
@@ -411,13 +413,10 @@ export default function XTerminal({
     setPerformanceMode(mode);
   }, []);
 
-  const exitOverloadedMode = useCallback(
-    (nextMode: PerformanceMode = "normal") => {
-      performanceModeRef.current = nextMode;
-      setPerformanceMode(nextMode);
-    },
-    [],
-  );
+  const exitOverloadedMode = useCallback((nextMode: PerformanceMode = "normal") => {
+    performanceModeRef.current = nextMode;
+    setPerformanceMode(nextMode);
+  }, []);
 
   // Search Addon state and handlers
   const {
@@ -554,6 +553,8 @@ export default function XTerminal({
     outputWriteQueueRef.current = Promise.resolve();
     pendingOutputMicrotaskRef.current = false;
     disconnectedRef.current = false;
+    disconnectedNoticeShownRef.current = false;
+    disconnectedCloseRequestedRef.current = false;
     reconnectingRef.current = false;
     performanceModeRef.current = "normal";
     resetCredentialAutofill();
@@ -1763,6 +1764,94 @@ export default function XTerminal({
         );
     };
 
+    const writeTerminalTextAfterOutputQueue = (data: string) => {
+      outputWriteQueueRef.current = outputWriteQueueRef.current
+        .catch(() => {})
+        .then(
+          () =>
+            new Promise<void>((resolve) => {
+              if (!isTerminalAlive()) {
+                resolve();
+                return;
+              }
+
+              try {
+                terminal.write(data, () => resolve());
+              } catch {
+                resolve();
+              }
+            }),
+        );
+      return outputWriteQueueRef.current;
+    };
+
+    const flushQueuedOutputBeforeStatusNotice = async () => {
+      if (pendingOutputFlushRef.current !== null) {
+        cancelAnimationFrame(pendingOutputFlushRef.current);
+        pendingOutputFlushRef.current = null;
+      }
+      clearPendingOutputFlushTimer();
+
+      const dropped = trimQueuedOutput(getBacklogCapBytes());
+      noteSkippedOutput(dropped);
+
+      while (queuedOutputChunksRef.current.length > 0) {
+        const payload = dequeueOutputChunk(getWriteChunkBytes());
+        if (!payload) break;
+        writeChunkToTerminal(payload);
+      }
+
+      await outputWriteQueueRef.current.catch(() => {});
+      flushPendingOutputAck(true);
+      maybeRecoverPerformanceMode();
+      refreshOutputPressureMode();
+    };
+
+    const resetDisconnectedInputState = () => {
+      inputStateRef.current = createTerminalInputState();
+      clearCredentialPromptInputMode();
+      resetCommandSuggestionSuppression();
+      dismissSuggestions();
+    };
+
+    const enterDisconnectedState = ({
+      title,
+      message,
+      titleColor,
+      showReconnectPrompt,
+    }: {
+      title: string;
+      message?: string;
+      titleColor: "31" | "36";
+      showReconnectPrompt: boolean;
+    }) => {
+      disconnectedRef.current = true;
+      resetDisconnectedInputState();
+
+      if (disconnectedNoticeShownRef.current) return;
+      disconnectedNoticeShownRef.current = true;
+      window.dispatchEvent(
+        new CustomEvent("nyaterm:session-disconnected", {
+          detail: { sessionId },
+        }),
+      );
+
+      void (async () => {
+        await flushQueuedOutputBeforeStatusNotice();
+        if (!isTerminalAlive()) return;
+
+        await writeTerminalTextAfterOutputQueue(`\r\n\x1b[${titleColor}m[${title}]\x1b[0m\r\n`);
+        if (message) {
+          await writeTerminalTextAfterOutputQueue(`\x1b[31m${message}\x1b[0m\r\n`);
+        }
+        if (showReconnectPrompt && canReconnectDisconnectedSession()) {
+          await writeTerminalTextAfterOutputQueue(
+            `\x1b[33m[${tRef.current("terminal.pressEnterToReconnect")}]\x1b[0m\r\n`,
+          );
+        }
+      })();
+    };
+
     const flushPendingOutput = () => {
       pendingOutputFlushRef.current = null;
       if (!visibleRef.current || !isTerminalAlive() || outputWriteInFlightRef.current) {
@@ -1946,20 +2035,14 @@ export default function XTerminal({
       const nextErrorUnlisten = await listen<string>(`session-error-${sessionId}`, (event) => {
         if (!isTerminalAlive()) return;
         const message = String(event.payload || tRef.current("terminal.connectionFailed"));
-        disconnectedRef.current = true;
-        window.dispatchEvent(
-          new CustomEvent("nyaterm:session-disconnected", {
-            detail: { sessionId },
-          }),
-        );
-        terminal.write(`\r\n\x1b[31m[${tRef.current("terminal.connectionFailed")}]\x1b[0m\r\n`);
-        terminal.write(`\x1b[31m${message}\x1b[0m\r\n`);
+        enterDisconnectedState({
+          title: tRef.current("terminal.connectionFailed"),
+          message,
+          titleColor: "31",
+          showReconnectPrompt: false,
+        });
         toast.error(message);
         onConnectionErrorRef.current?.(sessionIdRef.current, message);
-        inputStateRef.current = createTerminalInputState();
-        clearCredentialPromptInputMode();
-        resetCommandSuggestionSuppression();
-        dismissSuggestions();
       });
       if (disposed) {
         nextErrorUnlisten();
@@ -1969,20 +2052,11 @@ export default function XTerminal({
 
       const nextClosedUnlisten = await listen<void>(`session-closed-${sessionId}`, () => {
         if (!isTerminalAlive()) return;
-        disconnectedRef.current = true;
-        window.dispatchEvent(
-          new CustomEvent("nyaterm:session-disconnected", {
-            detail: { sessionId },
-          }),
-        );
-        terminal.write(`\r\n\x1b[31m[${tRef.current("terminal.sessionDisconnected")}]\x1b[0m\r\n`);
-        if (canReconnectDisconnectedSession()) {
-          terminal.write(`\x1b[33m[${tRef.current("terminal.pressEnterToReconnect")}]\x1b[0m\r\n`);
-        }
-        inputStateRef.current = createTerminalInputState();
-        clearCredentialPromptInputMode();
-        resetCommandSuggestionSuppression();
-        dismissSuggestions();
+        enterDisconnectedState({
+          title: tRef.current("terminal.sessionDisconnected"),
+          titleColor: "31",
+          showReconnectPrompt: true,
+        });
       });
       if (disposed) {
         nextClosedUnlisten();
@@ -2061,6 +2135,8 @@ export default function XTerminal({
               preservedReconnectContentRef.current = serializeTerminalText(terminal);
               const oldSessionId = sessionIdRef.current;
               disconnectedRef.current = false;
+              disconnectedNoticeShownRef.current = false;
+              disconnectedCloseRequestedRef.current = false;
               reconnectingRef.current = false;
               window.dispatchEvent(
                 new CustomEvent("nyaterm:session-reconnected", {
@@ -2078,6 +2154,15 @@ export default function XTerminal({
                 `\x1b[33m[${tRef.current("terminal.pressEnterToReconnect")}]\x1b[0m\r\n`,
               );
             });
+        }
+        if (
+          data === "\x04" &&
+          sessionTypeRef.current === "Local" &&
+          !reconnectingRef.current &&
+          !disconnectedCloseRequestedRef.current
+        ) {
+          disconnectedCloseRequestedRef.current = true;
+          onDisconnectedCloseRequestedRef.current?.();
         }
         return;
       }

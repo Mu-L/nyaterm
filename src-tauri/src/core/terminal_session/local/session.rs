@@ -163,7 +163,7 @@ fn pty_session_thread(
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     configure_local_pty_environment(&mut cmd);
 
-    let mut _child = match pair.slave.spawn_command(cmd) {
+    let mut child = match pair.slave.spawn_command(cmd) {
         Ok(c) => c,
         Err(e) => {
             tracing::error!("Failed to spawn shell: {}", e);
@@ -409,8 +409,34 @@ fn pty_session_thread(
     }
     loop {
         match reader_done_rx.try_recv() {
-            Ok(()) | Err(std_mpsc::TryRecvError::Disconnected) => break,
+            Ok(()) | Err(std_mpsc::TryRecvError::Disconnected) => {
+                tracing::debug!(
+                    session_id = %session_id,
+                    "Local PTY reader signalled session completion"
+                );
+                break;
+            }
             Err(std_mpsc::TryRecvError::Empty) => {}
+        }
+
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                tracing::info!(
+                    session_id = %session_id,
+                    exit_status = ?status,
+                    "Local PTY child exited"
+                );
+                break;
+            }
+            Ok(None) => {}
+            Err(error) => {
+                tracing::warn!(
+                    session_id = %session_id,
+                    error = %error,
+                    "Failed to query local PTY child status; closing session"
+                );
+                break;
+            }
         }
 
         // Drain any ZMODEM outgoing data first (non-blocking).
@@ -566,6 +592,10 @@ fn pty_session_thread(
             cvar.notify_all();
         }
     }
+
+    drop(writer);
+    drop(master);
+    let _ = reader_done_rx.recv_timeout(Duration::from_millis(250));
     output.close();
 
     if let Some(ref rec) = recording_mgr {

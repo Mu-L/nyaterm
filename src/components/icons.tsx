@@ -143,6 +143,7 @@ export const SYSTEM_ICONS: Record<string, QuickIconDef> = {
   mint: { icon: createLocalSvgIcon("/icons/os/linux-mint.svg"), color: "currentColor" },
   nixos: { icon: createLocalSvgIcon("/icons/os/Nixos.svg"), color: "currentColor" },
   h3c: { icon: createLocalSvgIcon("/icons/os/H3C.svg"), color: "currentColor" },
+  k8s: { icon: createLocalSvgIcon("/icons/os/K8s.svg"), color: "currentColor" },
   gentoo: { icon: createLocalSvgIcon("/icons/os/Gentoo.svg"), color: "currentColor" },
   raspberrypi: { icon: createLocalSvgIcon("/icons/os/Raspberrypi.svg"), color: "currentColor" },
   "alibaba-cloud-linux": {

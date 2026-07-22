@@ -14,6 +14,7 @@ use russh::{ChannelMsg, ChannelOpenFailure};
 use russh_sftp::client::{Config as SftpClientConfig, SftpSession, error::Error as SftpError};
 use russh_sftp::protocol::{FileAttributes, FileType, StatusCode};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::future::Future;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -33,12 +34,14 @@ const SFTP_MAX_CONCURRENT_WRITES: usize = 16;
 const SFTP_PACKET_OVERHEAD_RESERVE: usize = 1024;
 const TRANSFER_PROGRESS_INTERVAL: Duration = Duration::from_millis(50);
 const SFTP_SMALL_FILE_THRESHOLD: u64 = 512 * 1024;
-const SFTP_DEFAULT_SMALL_FILE_CONCURRENCY: usize = 64;
-const SFTP_MAX_SMALL_FILE_CONCURRENCY: usize = 256;
+const SFTP_DEFAULT_SMALL_FILE_CONCURRENCY: usize = 16;
+const SFTP_MAX_SMALL_FILE_CONCURRENCY: usize = 16;
+const SFTP_SMALL_FILE_WORKERS_PER_SESSION: usize = 8;
 const SFTP_DEFAULT_SESSION_POOL_SIZE: usize = 2;
 const SFTP_MAX_SESSION_POOL_SIZE: usize = 4;
 const SFTP_LARGE_FILE_CONCURRENCY: usize = 2;
 const SFTP_HANDLE_RESERVE: usize = 8;
+const SFTP_DIRECTORY_STALL_TIMEOUT: Duration = Duration::from_secs(60);
 const SFTP_CHANNEL_OPEN_RETRY_DELAYS: [Duration; 3] = [
     Duration::from_millis(50),
     Duration::from_millis(150),
@@ -214,16 +217,19 @@ fn ensure_download_complete(
 }
 
 fn sftp_directory_concurrency(max_open_handles: Option<u64>) -> SftpDirectoryConcurrency {
-    let small_file_concurrency = match max_open_handles {
-        Some(handles) => (handles.saturating_sub(SFTP_HANDLE_RESERVE as u64) as usize)
-            .clamp(1, SFTP_MAX_SMALL_FILE_CONCURRENCY),
-        None => SFTP_DEFAULT_SMALL_FILE_CONCURRENCY,
-    };
-    let large_file_concurrency = SFTP_LARGE_FILE_CONCURRENCY
-        .min(small_file_concurrency)
+    let server_limit = max_open_handles
+        .map(|handles| handles.saturating_sub(SFTP_HANDLE_RESERVE as u64) as usize)
+        .unwrap_or(SFTP_DEFAULT_SMALL_FILE_CONCURRENCY)
         .max(1);
     let session_pool_size = SFTP_DEFAULT_SESSION_POOL_SIZE
         .min(SFTP_MAX_SESSION_POOL_SIZE)
+        .min(server_limit)
+        .max(1);
+    let small_file_concurrency = server_limit
+        .min(session_pool_size * SFTP_SMALL_FILE_WORKERS_PER_SESSION)
+        .min(SFTP_MAX_SMALL_FILE_CONCURRENCY)
+        .max(1);
+    let large_file_concurrency = SFTP_LARGE_FILE_CONCURRENCY
         .min(small_file_concurrency)
         .max(1);
 
@@ -1669,10 +1675,13 @@ async fn upload_local_file_inner_with_controller(
 
                 // russh-sftp >= 2.3 pipelines write ACKs internally according to
                 // client::Config::max_concurrent_writes; shutdown below drains them.
-                remote_file
-                    .write_all(&buf[..read])
-                    .await
-                    .map_err(|e| AppError::Channel(format!("SFTP write failed: {}", e)))?;
+                wait_for_sftp_upload_io(
+                    &controller,
+                    parent_controller.as_ref(),
+                    remote_file.write_all(&buf[..read]),
+                    |e| AppError::Channel(format!("SFTP write failed: {}", e)),
+                )
+                .await?;
 
                 bytes_transferred += read as u64;
                 controller.update_progress(bytes_transferred, total_size);
@@ -1688,10 +1697,13 @@ async fn upload_local_file_inner_with_controller(
             }
         }
 
-        remote_file
-            .shutdown()
-            .await
-            .map_err(|e| AppError::Channel(format!("SFTP flush failed: {}", e)))?;
+        wait_for_sftp_upload_io(
+            &controller,
+            parent_controller.as_ref(),
+            remote_file.shutdown(),
+            |e| AppError::Channel(format!("SFTP flush failed: {}", e)),
+        )
+        .await?;
 
         if ts.preserve_timestamps {
             if let Ok(ref meta) = local_meta {
@@ -1991,10 +2003,13 @@ impl SftpBackend {
                 if read == 0 {
                     break;
                 }
-                remote_file
-                    .write_all(&buffer[..read])
-                    .await
-                    .map_err(|error| AppError::Channel(format!("SFTP write failed: {error}")))?;
+                wait_for_sftp_upload_io(
+                    &controller,
+                    None,
+                    remote_file.write_all(&buffer[..read]),
+                    |error| AppError::Channel(format!("SFTP write failed: {error}")),
+                )
+                .await?;
                 bytes_written = bytes_written.saturating_add(read as u64);
                 controller.update_progress(bytes_written, total_size);
                 if last_progress.elapsed() >= TRANSFER_PROGRESS_INTERVAL {
@@ -2005,9 +2020,10 @@ impl SftpBackend {
                     );
                 }
             }
-            remote_file.shutdown().await.map_err(|error| {
+            wait_for_sftp_upload_io(&controller, None, remote_file.shutdown(), |error| {
                 AppError::Channel(format!("SFTP flush failed for temporary file: {error}"))
-            })?;
+            })
+            .await?;
             self.commit_remote_copy_temp(&sftp, &temp_path, target_path)
                 .await?;
             if settings.preserve_timestamps {
@@ -2272,11 +2288,12 @@ impl SftpBackend {
             let mut last_progress = Instant::now();
             while let Some(chunk) = rx.recv().await {
                 wait_for_transfer_ready(&controller).await?;
-                target_file.write_all(&chunk).await.map_err(|error| {
+                wait_for_sftp_upload_io(&controller, None, target_file.write_all(&chunk), |error| {
                     AppError::Channel(format!(
                         "Target connection disconnected or write failed for {target_path}: {error}"
                     ))
-                })?;
+                })
+                .await?;
                 bytes_written = bytes_written.saturating_add(chunk.len() as u64);
                 controller.update_progress(bytes_written, total_size);
                 if last_progress.elapsed() >= TRANSFER_PROGRESS_INTERVAL {
@@ -2291,9 +2308,12 @@ impl SftpBackend {
             reader
                 .await
                 .map_err(|error| AppError::Channel(format!("Source reader task failed: {error}")))??;
-            target_file.shutdown().await.map_err(|error| {
-                AppError::Channel(format!("Target connection flush failed for {target_path}: {error}"))
-            })?;
+            wait_for_sftp_upload_io(&controller, None, target_file.shutdown(), |error| {
+                AppError::Channel(format!(
+                    "Target connection flush failed for {target_path}: {error}"
+                ))
+            })
+            .await?;
             target
                 .commit_remote_copy_temp(&target_sftp, &temp_path, target_path)
                 .await?;
@@ -2454,12 +2474,13 @@ impl SftpBackend {
                         if read == 0 {
                             break;
                         }
-                        target_file
-                            .write_all(&buffer[..read])
-                            .await
-                            .map_err(|error| {
-                                AppError::Channel(format!("SFTP write failed: {error}"))
-                            })?;
+                        wait_for_sftp_upload_io(
+                            &controller,
+                            None,
+                            target_file.write_all(&buffer[..read]),
+                            |error| AppError::Channel(format!("SFTP write failed: {error}")),
+                        )
+                        .await?;
                         bytes_written = bytes_written.saturating_add(read as u64);
                         controller.update_progress(bytes_written, total_size);
                         if last_progress.elapsed() >= TRANSFER_PROGRESS_INTERVAL {
@@ -2470,9 +2491,10 @@ impl SftpBackend {
                             );
                         }
                     }
-                    target_file.shutdown().await.map_err(|error| {
+                    wait_for_sftp_upload_io(&controller, None, target_file.shutdown(), |error| {
                         AppError::Channel(format!("SFTP flush failed for temporary file: {error}"))
-                    })?;
+                    })
+                    .await?;
                     Ok(())
                 }
                 .await;
@@ -2817,12 +2839,18 @@ impl SftpBackend {
 
                 while let Some(chunk) = rx.recv().await {
                     wait_for_transfer_ready(&controller).await?;
-                    target_file.write_all(&chunk).await.map_err(|error| {
-                        AppError::Channel(format!(
-                            "Target connection disconnected or write failed for {}: {error}",
-                            file.target_path
-                        ))
-                    })?;
+                    wait_for_sftp_upload_io(
+                        &controller,
+                        None,
+                        target_file.write_all(&chunk),
+                        |error| {
+                            AppError::Channel(format!(
+                                "Target connection disconnected or write failed for {}: {error}",
+                                file.target_path
+                            ))
+                        },
+                    )
+                    .await?;
                     bytes_written = bytes_written.saturating_add(chunk.len() as u64);
                     controller.update_progress(bytes_written, total_size);
                     if last_progress.elapsed() >= TRANSFER_PROGRESS_INTERVAL {
@@ -2836,12 +2864,13 @@ impl SftpBackend {
                 reader.await.map_err(|error| {
                     AppError::Channel(format!("Source reader task failed: {error}"))
                 })??;
-                target_file.shutdown().await.map_err(|error| {
+                wait_for_sftp_upload_io(&controller, None, target_file.shutdown(), |error| {
                     AppError::Channel(format!(
                         "Target connection flush failed for {}: {error}",
                         file.target_path
                     ))
-                })?;
+                })
+                .await?;
                 target
                     .commit_remote_copy_temp(&target_sftp, &temp_path, &file.target_path)
                     .await?;
@@ -4307,6 +4336,90 @@ fn add_directory_transferred_bytes(
     bytes_done
 }
 
+async fn wait_for_sftp_upload_io<T, F, M>(
+    controller: &Arc<TransferController>,
+    parent_controller: Option<&Arc<TransferController>>,
+    future: F,
+    map_error: M,
+) -> AppResult<T>
+where
+    F: Future<Output = std::io::Result<T>>,
+    M: FnOnce(std::io::Error) -> AppError,
+{
+    tokio::select! {
+        result = future => result.map_err(map_error),
+        cancelled = wait_for_transfer_cancelled(controller) => match cancelled {
+            Err(error) => Err(error),
+            Ok(()) => unreachable!("wait_for_transfer_cancelled only returns on cancellation"),
+        },
+        cancelled = async {
+            if let Some(parent) = parent_controller {
+                wait_for_transfer_cancelled(parent).await
+            } else {
+                std::future::pending::<AppResult<()>>().await
+            }
+        } => match cancelled {
+            Err(error) => Err(error),
+            Ok(()) => unreachable!("wait_for_transfer_cancelled only returns on cancellation"),
+        },
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct DirectoryProgressSnapshot {
+    bytes: u64,
+    completed: u64,
+}
+
+fn directory_progress_snapshot(
+    completed_bytes: &AtomicU64,
+    completed_count: &AtomicU64,
+) -> DirectoryProgressSnapshot {
+    DirectoryProgressSnapshot {
+        bytes: completed_bytes.load(Ordering::SeqCst),
+        completed: completed_count.load(Ordering::SeqCst),
+    }
+}
+
+fn directory_transfer_stalled(
+    control_state: TransferControlState,
+    last_progress: DirectoryProgressSnapshot,
+    current_progress: DirectoryProgressSnapshot,
+    idle_for: Duration,
+    total_files: u64,
+) -> bool {
+    control_state == TransferControlState::Running
+        && current_progress == last_progress
+        && current_progress.completed < total_files
+        && idle_for >= SFTP_DIRECTORY_STALL_TIMEOUT
+}
+
+fn handle_directory_worker_result(
+    operation: &str,
+    result: Result<AppResult<()>, tokio::task::JoinError>,
+    first_err: &mut Option<AppError>,
+    join_set: &mut tokio::task::JoinSet<AppResult<()>>,
+) {
+    match result {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            if first_err.is_none() {
+                *first_err = Some(error);
+                join_set.abort_all();
+            }
+        }
+        Err(error) if error.is_cancelled() && first_err.is_some() => {}
+        Err(error) => {
+            if first_err.is_none() {
+                *first_err = Some(AppError::Channel(format!(
+                    "Directory {operation} worker panicked: {error}"
+                )));
+                join_set.abort_all();
+            }
+        }
+    }
+}
+
 async fn run_download_directory_workers(
     app: &tauri::AppHandle,
     pool: SftpSessionPool,
@@ -4378,20 +4491,45 @@ async fn run_download_directory_workers(
     }
 
     let mut first_err = None;
-    while let Some(result) = join_set.join_next().await {
-        match result {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => {
-                if first_err.is_none() {
-                    first_err = Some(error);
-                }
+    let mut last_progress = directory_progress_snapshot(&completed_bytes, &completed_count);
+    let mut last_progress_at = Instant::now();
+    let mut watchdog = tokio::time::interval(Duration::from_secs(1));
+    watchdog.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+    loop {
+        tokio::select! {
+            result = join_set.join_next() => {
+                let Some(result) = result else {
+                    break;
+                };
+                handle_directory_worker_result("download", result, &mut first_err, &mut join_set);
             }
-            Err(error) => {
-                if first_err.is_none() {
-                    first_err = Some(AppError::Channel(format!(
-                        "Directory download worker panicked: {}",
-                        error
-                    )));
+            _ = watchdog.tick(), if first_err.is_none() => {
+                let current_progress = directory_progress_snapshot(&completed_bytes, &completed_count);
+                match directory_controller.control_state() {
+                    TransferControlState::Cancelled => {
+                        first_err = Some(AppError::Cancelled(TRANSFER_CANCELLED_MESSAGE.to_string()));
+                        join_set.abort_all();
+                    }
+                    TransferControlState::Paused => {
+                        last_progress = current_progress;
+                        last_progress_at = Instant::now();
+                    }
+                    TransferControlState::Running if current_progress != last_progress => {
+                        last_progress = current_progress;
+                        last_progress_at = Instant::now();
+                    }
+                    state if directory_transfer_stalled(
+                        state,
+                        last_progress,
+                        current_progress,
+                        last_progress_at.elapsed(),
+                        total_files,
+                    ) => {
+                        first_err = Some(AppError::Channel("SFTP transfer stalled".to_string()));
+                        join_set.abort_all();
+                    }
+                    _ => {}
                 }
             }
         }
@@ -4476,20 +4614,45 @@ async fn run_upload_directory_workers(
     }
 
     let mut first_err = None;
-    while let Some(result) = join_set.join_next().await {
-        match result {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => {
-                if first_err.is_none() {
-                    first_err = Some(error);
-                }
+    let mut last_progress = directory_progress_snapshot(&completed_bytes, &completed_count);
+    let mut last_progress_at = Instant::now();
+    let mut watchdog = tokio::time::interval(Duration::from_secs(1));
+    watchdog.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+    loop {
+        tokio::select! {
+            result = join_set.join_next() => {
+                let Some(result) = result else {
+                    break;
+                };
+                handle_directory_worker_result("upload", result, &mut first_err, &mut join_set);
             }
-            Err(error) => {
-                if first_err.is_none() {
-                    first_err = Some(AppError::Channel(format!(
-                        "Directory upload worker panicked: {}",
-                        error
-                    )));
+            _ = watchdog.tick(), if first_err.is_none() => {
+                let current_progress = directory_progress_snapshot(&completed_bytes, &completed_count);
+                match directory_controller.control_state() {
+                    TransferControlState::Cancelled => {
+                        first_err = Some(AppError::Cancelled(TRANSFER_CANCELLED_MESSAGE.to_string()));
+                        join_set.abort_all();
+                    }
+                    TransferControlState::Paused => {
+                        last_progress = current_progress;
+                        last_progress_at = Instant::now();
+                    }
+                    TransferControlState::Running if current_progress != last_progress => {
+                        last_progress = current_progress;
+                        last_progress_at = Instant::now();
+                    }
+                    state if directory_transfer_stalled(
+                        state,
+                        last_progress,
+                        current_progress,
+                        last_progress_at.elapsed(),
+                        total_files,
+                    ) => {
+                        first_err = Some(AppError::Channel("SFTP transfer stalled".to_string()));
+                        join_set.abort_all();
+                    }
+                    _ => {}
                 }
             }
         }
@@ -4642,9 +4805,13 @@ async fn upload_directory_file_with_session(
         if read == 0 {
             break;
         }
-        remote_file.write_all(&buf[..read]).await.map_err(|e| {
-            AppError::Channel(format!("SFTP write failed for {}: {}", file.remote_path, e))
-        })?;
+        wait_for_sftp_upload_io(
+            directory_controller,
+            None,
+            remote_file.write_all(&buf[..read]),
+            |e| AppError::Channel(format!("SFTP write failed for {}: {}", file.remote_path, e)),
+        )
+        .await?;
         bytes_transferred = bytes_transferred.saturating_add(read as u64);
         add_directory_transferred_bytes(
             directory_controller,
@@ -4661,9 +4828,10 @@ async fn upload_directory_file_with_session(
             );
         }
     }
-    remote_file.shutdown().await.map_err(|e| {
+    wait_for_sftp_upload_io(directory_controller, None, remote_file.shutdown(), |e| {
         AppError::Channel(format!("SFTP flush failed for {}: {}", file.remote_path, e))
-    })?;
+    })
+    .await?;
 
     if transfer_settings.preserve_timestamps {
         if let Some(mtime) = file.mtime {
@@ -4829,7 +4997,7 @@ mod tests {
         let concurrency = sftp_directory_concurrency(None);
 
         assert_eq!(concurrency.session_pool_size, 2);
-        assert_eq!(concurrency.small_file_concurrency, 64);
+        assert_eq!(concurrency.small_file_concurrency, 16);
         assert_eq!(concurrency.large_file_concurrency, 2);
     }
 
@@ -4913,6 +5081,74 @@ mod tests {
             sftp_directory_file_concurrency(10_000, concurrency),
             concurrency.small_file_concurrency
         );
+    }
+
+    #[test]
+    fn directory_stall_watchdog_fires_only_while_running_without_progress() {
+        let snapshot = DirectoryProgressSnapshot {
+            bytes: 128,
+            completed: 1,
+        };
+
+        assert!(directory_transfer_stalled(
+            TransferControlState::Running,
+            snapshot,
+            snapshot,
+            SFTP_DIRECTORY_STALL_TIMEOUT,
+            2,
+        ));
+        assert!(!directory_transfer_stalled(
+            TransferControlState::Paused,
+            snapshot,
+            snapshot,
+            SFTP_DIRECTORY_STALL_TIMEOUT * 2,
+            2,
+        ));
+        assert!(!directory_transfer_stalled(
+            TransferControlState::Running,
+            snapshot,
+            DirectoryProgressSnapshot {
+                bytes: 256,
+                completed: 1,
+            },
+            SFTP_DIRECTORY_STALL_TIMEOUT,
+            2,
+        ));
+        assert!(!directory_transfer_stalled(
+            TransferControlState::Running,
+            snapshot,
+            snapshot,
+            SFTP_DIRECTORY_STALL_TIMEOUT,
+            1,
+        ));
+    }
+
+    #[tokio::test]
+    async fn directory_worker_error_aborts_remaining_workers() {
+        let mut join_set = tokio::task::JoinSet::new();
+        join_set.spawn(async {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            AppResult::Ok(())
+        });
+        let mut first_err = None;
+
+        handle_directory_worker_result(
+            "upload",
+            Ok(Err(AppError::Channel("first failure".to_string()))),
+            &mut first_err,
+            &mut join_set,
+        );
+
+        assert!(
+            first_err
+                .as_ref()
+                .is_some_and(|error| error.to_string().contains("first failure"))
+        );
+        let result = join_set
+            .join_next()
+            .await
+            .expect("aborted worker should still be drained");
+        assert!(result.expect_err("worker should be aborted").is_cancelled());
     }
 
     #[test]

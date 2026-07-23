@@ -911,6 +911,12 @@
     "uuid": "UUID"
   },
   "headerStatus": {
+    "datetime": "日期時間",
+    "hidden": "不顯示",
+    "hide": "關閉顯示",
+    "hideConfirmAction": "關閉顯示",
+    "hideConfirmDesc": "頂部置中的資訊列將被隱藏。之後可在「設定 > 一般 > 頂部資訊列」重新選擇要顯示的資訊。",
+    "hideConfirmTitle": "關閉頂部資訊列？",
     "host": "主機概覽",
     "resources": "資源監控",
     "select": "選擇頂部顯示資訊",
@@ -1639,6 +1645,8 @@
     "groupWorkspace": "工作區",
     "hardwareAcceleration": "硬體加速",
     "hardwareAccelerationDesc": "使用 GPU 進行終端渲染 (WebGL/Canvas)。需要重新啟動。",
+    "headerStatus": "頂部資訊列",
+    "headerStatusDesc": "選擇應用程式頂部置中顯示的資訊，或隱藏它以便更容易拖動視窗。",
     "hidePassphrase": "隱藏密碼片語",
     "historyAll": "全部",
     "historyClearFilters": "清除篩選",

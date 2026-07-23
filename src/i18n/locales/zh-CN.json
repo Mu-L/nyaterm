@@ -911,6 +911,12 @@
     "uuid": "UUID"
   },
   "headerStatus": {
+    "datetime": "日期时间",
+    "hidden": "不显示",
+    "hide": "关闭显示",
+    "hideConfirmAction": "关闭显示",
+    "hideConfirmDesc": "顶部居中的信息栏将被隐藏。之后可在「设置 > 通用 > 顶部信息栏」重新选择要显示的信息。",
+    "hideConfirmTitle": "关闭顶部信息栏？",
     "host": "主机概览",
     "resources": "资源监控",
     "select": "选择顶部显示信息",
@@ -1644,6 +1650,8 @@
     "groupWorkspace": "工作区",
     "hardwareAcceleration": "硬件加速",
     "hardwareAccelerationDesc": "使用 GPU 进行终端渲染 (WebGL/Canvas)。需要重启。",
+    "headerStatus": "顶部信息栏",
+    "headerStatusDesc": "选择应用顶部居中显示的信息，或隐藏它以便更容易拖动窗口。",
     "hidePassphrase": "隐藏口令",
     "historyAll": "全部",
     "historyClearFilters": "清除筛选",

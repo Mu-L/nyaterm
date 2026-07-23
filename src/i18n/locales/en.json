@@ -911,6 +911,12 @@
     "uuid": "UUID"
   },
   "headerStatus": {
+    "datetime": "Date and time",
+    "hidden": "Do not show",
+    "hide": "Hide",
+    "hideConfirmAction": "Hide",
+    "hideConfirmDesc": "The center header status will be hidden. You can show it again from Settings > General > Header status.",
+    "hideConfirmTitle": "Hide header status?",
     "host": "Host overview",
     "resources": "Resources",
     "select": "Choose header status",
@@ -1644,6 +1650,8 @@
     "groupWorkspace": "Workspace",
     "hardwareAcceleration": "Hardware Accel.",
     "hardwareAccelerationDesc": "Use GPU for terminal rendering (WebGL/Canvas). Requires restart.",
+    "headerStatus": "Header status",
+    "headerStatusDesc": "Choose what appears in the center of the app header, or hide it to make that area easier to drag.",
     "hidePassphrase": "Hide passphrase",
     "historyAll": "All",
     "historyClearFilters": "Clear Filters",

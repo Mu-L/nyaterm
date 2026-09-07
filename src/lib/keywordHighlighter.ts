@@ -48,6 +48,7 @@ interface RefreshBudget {
 interface SpanScanResult {
   spans: HighlightSpan[];
   complete: boolean;
+  scannedChars: number;
 }
 
 interface WrappedSpanScanResult {
@@ -91,6 +92,8 @@ export class KeywordHighlighter implements IDisposable {
   private resumeRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private resumeRefreshFrame: number | null = null;
   private continuationRefreshFrame: number | null = null;
+  /** Logical lines skipped after exhausting one refresh budget, until the continuation chain ends. */
+  private continuationSkippedLogicalStarts = new Set<number>();
   private enabled = false;
   private suspended = false;
   private highlightAcrossWrappedLines = false;
@@ -354,6 +357,7 @@ export class KeywordHighlighter implements IDisposable {
     this.clearAllTimers();
     this.clearDecorations();
     this.clearMatchCache();
+    this.continuationSkippedLogicalStarts.clear();
     this.disposeSentinel();
     this.bufferTrimmed = false;
   }
@@ -563,7 +567,7 @@ export class KeywordHighlighter implements IDisposable {
   ): SpanScanResult {
     const maxCols = Math.min(line.length, this.term.cols);
     const lineText = line.translateToString(true, 0, maxCols);
-    if (!lineText) return { spans: [], complete: true };
+    if (!lineText) return { spans: [], complete: true, scannedChars: 0 };
 
     // Only build the wide-char map if actually needed (non-ASCII present)
     const hasMultibyte = /[^\u0000-\u00FF]/.test(lineText);
@@ -578,12 +582,16 @@ export class KeywordHighlighter implements IDisposable {
 
     for (const { regex, color } of this.compiledRules) {
       if (spans.length >= config.maxMatchesPerLine) break;
-      if (this.isBudgetExhausted(budget)) return { spans, complete: false };
+      if (this.isBudgetExhausted(budget)) {
+        return { spans, complete: false, scannedChars: lineText.length };
+      }
       regex.lastIndex = 0;
 
       while (true) {
         if (spans.length >= config.maxMatchesPerLine) break;
-        if (this.isBudgetExhausted(budget)) return { spans, complete: false };
+        if (this.isBudgetExhausted(budget)) {
+          return { spans, complete: false, scannedChars: lineText.length };
+        }
         const match = regex.exec(lineText);
         if (match === null) break;
 
@@ -626,7 +634,48 @@ export class KeywordHighlighter implements IDisposable {
       }
     }
 
-    return { spans, complete: true };
+    return { spans, complete: true, scannedChars: lineText.length };
+  }
+
+  private scanPhysicalLogicalLine(
+    buffer: XTerm["buffer"]["active"],
+    startY: number,
+    endY: number,
+    scratchCell: IBufferCell,
+    config: KeywordHighlightPerformanceConfig,
+    budget: RefreshBudget,
+  ): WrappedSpanScanResult {
+    const lineYs = Array.from({ length: endY - startY + 1 }, (_, index) => startY + index);
+    const emptyByLine = () =>
+      new Map(lineYs.map((lineY) => [lineY, [] as HighlightSpan[]] as const));
+    const spansByLine = emptyByLine();
+    let logicalLength = 0;
+    let decorationCandidates = 0;
+
+    for (const lineY of lineYs) {
+      if (this.isBudgetExhausted(budget)) {
+        return { spansByLine, lineYs, complete: false, cacheable: false };
+      }
+      const line = buffer.getLine(lineY);
+      if (!line) continue;
+
+      const result = this.scanPhysicalLine(line, scratchCell, config, budget);
+      if (!result.complete) {
+        return { spansByLine, lineYs, complete: false, cacheable: false };
+      }
+
+      logicalLength += result.scannedChars;
+      decorationCandidates += result.spans.length;
+      if (
+        logicalLength > KeywordHighlighter.MAX_LOGICAL_LINE_SCAN_CHARS ||
+        decorationCandidates > config.maxDecorationsPerLogicalLine
+      ) {
+        return { spansByLine: emptyByLine(), lineYs, complete: true, cacheable: true };
+      }
+      spansByLine.set(lineY, result.spans);
+    }
+
+    return { spansByLine, lineYs, complete: true, cacheable: true };
   }
 
   private scanWrappedLogicalLine(
@@ -673,12 +722,13 @@ export class KeywordHighlighter implements IDisposable {
 
     const logicalText = segments.map((segment) => segment.text).join("");
     if (logicalText.length > KeywordHighlighter.MAX_LOGICAL_LINE_SCAN_CHARS) {
-      return { spansByLine: emptyByLine, lineYs, complete: true, cacheable: false };
+      return { spansByLine: emptyByLine, lineYs, complete: true, cacheable: true };
     }
     const occupied = new Uint8Array(logicalText.length);
 
     const spansByLine = emptyByLine;
     const acceptedMatchesByLine = new Map<number, number>();
+    let decorationCandidates = 0;
 
     for (const { regex, color } of this.compiledRules) {
       if (this.isBudgetExhausted(budget)) {
@@ -726,7 +776,7 @@ export class KeywordHighlighter implements IDisposable {
         }
         if (lineLimitReached) continue;
 
-        const acceptedLineYs: number[] = [];
+        const candidateSpans: Array<{ lineY: number; span: HighlightSpan }> = [];
         for (const segment of matchedSegments) {
           const localStart = Math.max(strStart, segment.startIndex) - segment.startIndex;
           const localEnd = Math.min(strEnd, segment.endIndex) - segment.startIndex;
@@ -738,20 +788,31 @@ export class KeywordHighlighter implements IDisposable {
           const cellEndCol = segment.cellMap ? (segment.cellMap[localEnd] ?? localEnd) : localEnd;
           const cellWidth = cellEndCol - cellStartCol;
           if (cellWidth <= 0) continue;
-          spansByLine.get(segment.lineY)?.push({
-            cellStartCol,
-            cellWidth,
-            color,
+          candidateSpans.push({
+            lineY: segment.lineY,
+            span: { cellStartCol, cellWidth, color },
           });
-          acceptedLineYs.push(segment.lineY);
         }
 
-        if (acceptedLineYs.length === 0) continue;
+        if (candidateSpans.length === 0) continue;
+        if (decorationCandidates + candidateSpans.length > config.maxDecorationsPerLogicalLine) {
+          return {
+            spansByLine: new Map(lineYs.map((lineY) => [lineY, [] as HighlightSpan[]])),
+            lineYs,
+            complete: true,
+            cacheable: true,
+          };
+        }
+
+        for (const { lineY, span } of candidateSpans) {
+          spansByLine.get(lineY)?.push(span);
+        }
+        decorationCandidates += candidateSpans.length;
 
         for (let k = strStart; k < strEnd; k++) {
           occupied[k] = 1;
         }
-        for (const lineY of acceptedLineYs) {
+        for (const { lineY } of candidateSpans) {
           acceptedMatchesByLine.set(lineY, (acceptedMatchesByLine.get(lineY) ?? 0) + 1);
         }
       }
@@ -786,6 +847,10 @@ export class KeywordHighlighter implements IDisposable {
   private refreshViewport(reason: RefreshReason): void {
     if (!this.enabled || this.suspended || this.compiledRules.length === 0) return;
     if (!this.term?.buffer?.active) return;
+
+    if (reason !== "continuation") {
+      this.continuationSkippedLogicalStarts.clear();
+    }
 
     if (this.term.buffer.active.type === "alternate") {
       this.invalidateAll();
@@ -841,36 +906,6 @@ export class KeywordHighlighter implements IDisposable {
       if (this.isBudgetExhausted(budget)) break;
       const line = buffer.getLine(lineY);
       if (!line) continue;
-      processedLines.add(lineY);
-
-      if (!this.highlightAcrossWrappedLines) {
-        let spans: HighlightSpan[];
-        if (lineY < screenStartY) {
-          const cached = this.getCachedMatches(lineY);
-          if (cached !== undefined) {
-            stats.cacheHits++;
-            spans = cached;
-          } else {
-            stats.cacheMisses++;
-            stats.scannedLines++;
-            const result = this.scanPhysicalLine(line, scratchCell, config, budget);
-            spans = result.spans;
-            if (result.complete) this.setCachedMatches(lineY, spans);
-          }
-        } else {
-          stats.scannedLines++;
-          spans = this.scanPhysicalLine(line, scratchCell, config, budget).spans;
-        }
-        this.materializeSpans(
-          lineY,
-          spans,
-          cursorAbsoluteY,
-          requiredKeys,
-          config,
-          budget,
-        );
-        continue;
-      }
 
       const { startY, endY } = this.getLogicalLineBounds(buffer, lineY, totalLines);
       const canMemoize = endY < screenStartY;
@@ -889,7 +924,11 @@ export class KeywordHighlighter implements IDisposable {
         canMemoize && logicalLineYs.every((cachedLineY) => this.lineMatchCache.has(cachedLineY));
 
       let spansByLine: Map<number, HighlightSpan[]>;
-      if (allRowsCached) {
+      if (this.continuationSkippedLogicalStarts.has(startY)) {
+        spansByLine = new Map(
+          logicalLineYs.map((skippedLineY) => [skippedLineY, [] as HighlightSpan[]]),
+        );
+      } else if (allRowsCached) {
         spansByLine = new Map();
         for (const cachedLineY of logicalLineYs) {
           const cached = this.getCachedMatches(cachedLineY);
@@ -901,17 +940,21 @@ export class KeywordHighlighter implements IDisposable {
       } else {
         if (canMemoize) stats.cacheMisses++;
         stats.scannedLines += logicalLineYs.length;
-        const result = this.scanWrappedLogicalLine(
-          buffer,
-          startY,
-          endY,
-          scratchCell,
-          config,
-          budget,
-        );
+        const result = this.highlightAcrossWrappedLines
+          ? this.scanWrappedLogicalLine(buffer, startY, endY, scratchCell, config, budget)
+          : this.scanPhysicalLogicalLine(buffer, startY, endY, scratchCell, config, budget);
         spansByLine = result.spansByLine;
+        const scanInterruptedByBudget =
+          (!result.complete && budget.hitLimit) || (result.complete && this.isBudgetExpired(budget));
+        if (scanInterruptedByBudget) {
+          this.continuationSkippedLogicalStarts.add(startY);
+          spansByLine = new Map(
+            logicalLineYs.map((skippedLineY) => [skippedLineY, [] as HighlightSpan[]]),
+          );
+        }
         if (
           canMemoize &&
+          !scanInterruptedByBudget &&
           result.complete &&
           result.cacheable &&
           result.lineYs.length <= config.maxCachedMatchLines
@@ -938,6 +981,7 @@ export class KeywordHighlighter implements IDisposable {
         );
         if (budget.hitLimit) break;
       }
+      lineY = endY;
     }
 
     // Evict decorations that have drifted outside the overscan zone. If the refresh

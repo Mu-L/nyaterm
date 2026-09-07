@@ -483,6 +483,238 @@ describe("KeywordHighlighter", () => {
     highlighter.dispose();
   });
 
+  it.each([false, true])(
+    "skips a decoration-dense wrapped logical line atomically when cross-wrap matching is %s",
+    (highlightAcrossWrappedLines) => {
+      const denseText = "ERROR ".repeat(XTERM_PERFORMANCE_CONFIG.highlighting.maxMatchesPerLine);
+      const wrappedRows =
+        Math.floor(
+          XTERM_PERFORMANCE_CONFIG.highlighting.maxDecorationsPerLogicalLine /
+            XTERM_PERFORMANCE_CONFIG.highlighting.maxMatchesPerLine,
+        ) + 1;
+      const startY = 100;
+      const normalY = startY + wrappedRows;
+      const lines = Array.from({ length: 240 }, () => createLine(""));
+      for (let index = 0; index < wrappedRows; index++) {
+        lines[startY + index] = createLine(denseText, { wrapped: index > 0 });
+      }
+      lines[normalY] = createLine("ERROR");
+      const harness = createHarness({
+        lines,
+        baseY: 220,
+        viewportY: startY,
+        rows: wrappedRows + 1,
+        cols: denseText.length,
+      });
+      const highlighter = new KeywordHighlighter(harness.terminal);
+      highlighter.setRules([rule()], true, highlightAcrossWrappedLines);
+      flushWriteRefresh();
+
+      expect(
+        harness.decorations.filter(
+          (entry) => entry.marker.line >= startY && entry.marker.line < normalY,
+        ),
+      ).toHaveLength(0);
+      expect(harness.decorations.filter((entry) => entry.marker.line === normalY)).toHaveLength(1);
+      expect(rafCallbacks).toHaveLength(0);
+      for (let lineY = startY; lineY < normalY; lineY++) {
+        expect(lines[lineY].translateSpy).toHaveBeenCalledTimes(1);
+      }
+
+      harness.write();
+      flushWriteRefresh();
+      expect(rafCallbacks).toHaveLength(0);
+      for (let lineY = startY; lineY < normalY; lineY++) {
+        expect(lines[lineY].translateSpy).toHaveBeenCalledTimes(1);
+      }
+
+      harness.active.viewportY = 160;
+      harness.render();
+      flushScrollRefresh();
+      harness.active.viewportY = startY;
+      harness.render();
+      flushScrollRefresh();
+      expect(
+        harness.decorations.filter(
+          (entry) => entry.marker.line >= startY && entry.marker.line < normalY,
+        ),
+      ).toHaveLength(0);
+      for (let lineY = startY; lineY < normalY; lineY++) {
+        expect(lines[lineY].translateSpy).toHaveBeenCalledTimes(1);
+      }
+      highlighter.dispose();
+    },
+  );
+
+  it.each([false, true])(
+    "drops existing wrapped-line decorations atomically after the logical-line cap is exceeded (%s)",
+    (highlightAcrossWrappedLines) => {
+      const denseText = "ERROR ".repeat(XTERM_PERFORMANCE_CONFIG.highlighting.maxMatchesPerLine);
+      const denseRows = Math.floor(
+        XTERM_PERFORMANCE_CONFIG.highlighting.maxDecorationsPerLogicalLine /
+          XTERM_PERFORMANCE_CONFIG.highlighting.maxMatchesPerLine,
+      );
+      const startY = 100;
+      const lines = Array.from({ length: 140 }, () => createLine(""));
+      for (let index = 0; index < denseRows; index++) {
+        lines[startY + index] = createLine(denseText, { wrapped: index > 0 });
+      }
+      lines[startY + denseRows] = createLine("", { wrapped: true });
+      const harness = createHarness({
+        lines,
+        baseY: startY,
+        viewportY: startY,
+        rows: denseRows + 1,
+        cols: denseText.length,
+      });
+      const highlighter = new KeywordHighlighter(harness.terminal);
+      highlighter.setRules([rule()], true, highlightAcrossWrappedLines);
+      flushWriteRefresh();
+
+      const initialDecorations = harness.decorations.filter(
+        (entry) => entry.marker.line >= startY && entry.marker.line <= startY + denseRows,
+      );
+      expect(initialDecorations).toHaveLength(
+        XTERM_PERFORMANCE_CONFIG.highlighting.maxDecorationsPerLogicalLine,
+      );
+      expect(rafCallbacks).toHaveLength(0);
+
+      lines[startY + denseRows] = createLine(denseText, { wrapped: true });
+      harness.write();
+      flushWriteRefresh();
+
+      expect(harness.decorations).toHaveLength(initialDecorations.length);
+      expect(initialDecorations.every((entry) => entry.decoration.isDisposed)).toBe(true);
+      expect(rafCallbacks).toHaveLength(0);
+      highlighter.dispose();
+    },
+  );
+
+  it.each([false, true])(
+    "skips a wrapped logical line after its refresh budget expires and continues with later lines (%s)",
+    (highlightAcrossWrappedLines) => {
+      const denseText = "ERROR ".repeat(XTERM_PERFORMANCE_CONFIG.highlighting.maxMatchesPerLine);
+      const wrappedRows =
+        Math.floor(
+          XTERM_PERFORMANCE_CONFIG.highlighting.maxDecorationsPerLogicalLine /
+            XTERM_PERFORMANCE_CONFIG.highlighting.maxMatchesPerLine,
+        ) + 1;
+      const startY = 100;
+      const normalY = startY + wrappedRows;
+      let now = 0;
+      const lines = Array.from({ length: normalY + 1 }, () => createLine(""));
+      for (let index = 0; index < wrappedRows; index++) {
+        const line = createLine(denseText, { wrapped: index > 0 });
+        line.translateSpy.mockImplementation((trimRight: boolean) => {
+          now = 4;
+          return trimRight ? denseText.replace(/\s+$/u, "") : denseText;
+        });
+        lines[startY + index] = line;
+      }
+      lines[normalY] = createLine("ERROR");
+      const harness = createHarness({
+        lines,
+        baseY: startY,
+        viewportY: startY,
+        rows: wrappedRows + 1,
+        cols: denseText.length,
+      });
+      const highlighter = new KeywordHighlighter(harness.terminal);
+      const performanceNow = vi.spyOn(performance, "now").mockImplementation(() => now);
+
+      highlighter.setRules([rule()], true, highlightAcrossWrappedLines);
+      flushWriteRefresh();
+      expect(rafCallbacks).toHaveLength(1);
+      expect(harness.decorations).toHaveLength(0);
+      const initialScanCounts = Array.from(
+        { length: wrappedRows },
+        (_, index) => lines[startY + index].translateSpy.mock.calls.length,
+      );
+
+      const [[rafId, continuation]] = [...rafCallbacks.entries()];
+      rafCallbacks.delete(rafId);
+      now = 100;
+      continuation(100);
+
+      expect(rafCallbacks).toHaveLength(0);
+      expect(
+        Array.from(
+          { length: wrappedRows },
+          (_, index) => lines[startY + index].translateSpy.mock.calls.length,
+        ),
+      ).toEqual(initialScanCounts);
+      expect(
+        harness.decorations.filter(
+          (entry) => entry.marker.line >= startY && entry.marker.line < normalY,
+        ),
+      ).toHaveLength(0);
+      expect(harness.decorations.filter((entry) => entry.marker.line === normalY)).toHaveLength(1);
+      performanceNow.mockRestore();
+      highlighter.dispose();
+    },
+  );
+
+  it.each([false, true])(
+    "skips a wrapped logical line when the refresh budget expires after its final scan check (%s)",
+    (highlightAcrossWrappedLines) => {
+      const startY = 100;
+      const normalY = startY + 2;
+      const lines = Array.from({ length: normalY + 1 }, () => createLine(""));
+      lines[startY] = createLine("ERROR");
+      lines[startY + 1] = createLine("ERROR", { wrapped: true });
+      lines[normalY] = createLine("ERROR");
+      const harness = createHarness({
+        lines,
+        baseY: startY,
+        viewportY: startY,
+        rows: 3,
+      });
+      const highlighter = new KeywordHighlighter(harness.terminal);
+      let now = 0;
+      let errorNullMatches = 0;
+      const originalExec = RegExp.prototype.exec;
+      const execSpy = vi.spyOn(RegExp.prototype, "exec").mockImplementation(function (this: RegExp, text: string) {
+        const result = originalExec.call(this, text);
+        if (this.source === "ERROR" && result === null) {
+          errorNullMatches++;
+          const expiryNullMatch = highlightAcrossWrappedLines ? 1 : 2;
+          if (errorNullMatches === expiryNullMatch) now = 4;
+        }
+        return result;
+      });
+      const performanceNow = vi.spyOn(performance, "now").mockImplementation(() => now);
+
+      highlighter.setRules([rule()], true, highlightAcrossWrappedLines);
+      flushWriteRefresh();
+      expect(rafCallbacks).toHaveLength(1);
+      expect(harness.decorations).toHaveLength(0);
+      const initialScanCounts = [
+        lines[startY].translateSpy.mock.calls.length,
+        lines[startY + 1].translateSpy.mock.calls.length,
+      ];
+
+      const [[rafId, continuation]] = [...rafCallbacks.entries()];
+      rafCallbacks.delete(rafId);
+      now = 100;
+      continuation(100);
+
+      expect(rafCallbacks).toHaveLength(0);
+      expect([
+        lines[startY].translateSpy.mock.calls.length,
+        lines[startY + 1].translateSpy.mock.calls.length,
+      ]).toEqual(initialScanCounts);
+      expect(
+        harness.decorations.filter(
+          (entry) => entry.marker.line === startY || entry.marker.line === startY + 1,
+        ),
+      ).toHaveLength(0);
+      expect(harness.decorations.filter((entry) => entry.marker.line === normalY)).toHaveLength(1);
+      execSpy.mockRestore();
+      performanceNow.mockRestore();
+      highlighter.dispose();
+    },
+  );
+
   it("delays resume and cancels it when suspension returns", () => {
     const lines = Array.from({ length: 80 }, (_, index) =>
       createLine(index === 20 ? "ERROR" : ""),

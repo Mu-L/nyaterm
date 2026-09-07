@@ -130,27 +130,25 @@ pub fn injection_script(shell: ShellKind, ready_marker: &str) -> Option<String> 
                 " __nyaterm_host(){{ hostname 2>/dev/null || printf localhost; }};",
                 " __nyaterm_ready_failed(){{ [ -n \"${{__nyaterm_failure_reported:-}}\" ] || {{ __nyaterm_failure_reported=1; printf '%s' \"${{NYATERM_READY_FAILED_MARKER-}}\"; }}; }};",
                 " __nyaterm_emit(){{",
-                " local saved_status=$?; local cwd=\"${{PWD//%/%25}}\"; printf '\\033]7;file://%s%s\\007' \"$(__nyaterm_host)\" \"$cwd\"; return \"$saved_status\";",
+                " builtin typeset saved_status=$?; builtin typeset cwd=\"${{PWD//%/%25}}\"; printf '\\033]7;file://%s%s\\007' \"$(__nyaterm_host)\" \"$cwd\"; return \"$saved_status\";",
                 " }};",
                 " __nyaterm_preexec(){{",
-                " local saved_status=$?; if [ -n \"$1\" ]; then",
+                " builtin typeset saved_status=$?; if [ -n \"$1\" ]; then",
                 " if command -v base64 >/dev/null 2>&1; then",
-                " local b64; b64=\"$(printf '%s' \"$1\" | base64 | tr -d '\\r\\n')\";",
+                " builtin typeset b64; b64=\"$(printf '%s' \"$1\" | base64 | tr -d '\\r\\n')\";",
                 " printf '\\033]%s%s\\007' \"$NYATERM_COMMAND_MARKER\" \"$b64\";",
                 " fi;",
                 " fi; return \"$saved_status\";",
                 " }};",
-                " __nyaterm_repair_prompt_container(){{",
+                " __nyaterm_install_prompt(){{",
                 " [[ ${{parameters[precmd_functions]-}} == *readonly* ]] && return 1;",
                 " [[ ${{parameters[preexec_functions]-}} == *readonly* ]] && return 1;",
-                " typeset -ga precmd_functions preexec_functions || return 1;",
-                " local -a retained=(); local f; for f in \"${{precmd_functions[@]}}\"; do case \"$f\" in (__nyaterm_emit|__nyaterm_repair_prompt) ;; (*) retained+=(\"$f\");; esac; done;",
-                " precmd_functions=(\"${{retained[@]}}\" __nyaterm_emit __nyaterm_repair_prompt) || return 1;",
+                " builtin typeset -ga precmd_functions preexec_functions || return 1;",
+                " builtin typeset -a retained || return 1; builtin typeset f || return 1; retained=(); for f in \"${{precmd_functions[@]}}\"; do case \"$f\" in (__nyaterm_emit|__nyaterm_repair_prompt) ;; (*) retained+=(\"$f\");; esac; done;",
+                " precmd_functions=(\"${{retained[@]}}\" __nyaterm_emit) || return 1;",
                 " retained=(); for f in \"${{preexec_functions[@]}}\"; do [ \"$f\" = __nyaterm_preexec ] || retained+=(\"$f\"); done;",
                 " preexec_functions=(\"${{retained[@]}}\" __nyaterm_preexec) || return 1; return 0;",
                 " }};",
-                " __nyaterm_repair_prompt(){{ local saved_status=$?; __nyaterm_repair_prompt_container || __nyaterm_ready_failed; return \"$saved_status\"; }};",
-                " __nyaterm_install_prompt(){{ __nyaterm_repair_prompt_container; }};",
                 " fc -P 2>/dev/null\n",
                 " if __nyaterm_install_prompt; then if [ -n \"${{NYATERM_READY_PENDING:-}}\" ]; then unset NYATERM_READY_PENDING; printf '{}'; fi; else unset NYATERM_READY_PENDING; __nyaterm_ready_failed; fi\n",
             ),
@@ -307,33 +305,33 @@ const ZSH_PERSISTENT_SCRIPT: &str = concat!(
     "__nyaterm_host(){ hostname 2>/dev/null || printf localhost; }\n",
     "__nyaterm_ready_failed(){ [ -n \"${__nyaterm_failure_reported:-}\" ] || { __nyaterm_failure_reported=1; printf '%s' \"${NYATERM_READY_FAILED_MARKER-}\"; }; }\n",
     "__nyaterm_emit(){\n",
-    "  local saved_status=$?\n",
+    "  builtin typeset saved_status=$?\n",
     "  if [ -n \"${NYATERM_READY_PENDING:-}\" ]; then unset NYATERM_READY_PENDING; printf '%s' \"${NYATERM_READY_MARKER-}\"; fi\n",
-    "  local cwd=\"${PWD//%/%25}\"\n",
+    "  builtin typeset cwd=\"${PWD//%/%25}\"\n",
     "  printf '\\033]7;file://%s%s\\007' \"$(__nyaterm_host)\" \"$cwd\"\n",
     "  return \"$saved_status\"\n",
     "}\n",
     "__nyaterm_preexec(){\n",
-    "  local saved_status=$?\n",
+    "  builtin typeset saved_status=$?\n",
     "  if [ -n \"$1\" ] && command -v base64 >/dev/null 2>&1; then\n",
-    "    local b64; b64=\"$(printf '%s' \"$1\" | base64 | tr -d '\\r\\n')\"\n",
+    "    builtin typeset b64; b64=\"$(printf '%s' \"$1\" | base64 | tr -d '\\r\\n')\"\n",
     "    printf '\\033]7777;NyaTermCommand:%s\\007' \"$b64\"\n",
     "  fi\n",
     "  return \"$saved_status\"\n",
     "}\n",
-    "__nyaterm_repair_prompt_container(){\n",
+    "__nyaterm_install_prompt(){\n",
     "  [[ ${parameters[precmd_functions]-} == *readonly* ]] && return 1\n",
     "  [[ ${parameters[preexec_functions]-} == *readonly* ]] && return 1\n",
-    "  typeset -ga precmd_functions preexec_functions || return 1\n",
-    "  local -a retained=(); local f\n",
+    "  builtin typeset -ga precmd_functions preexec_functions || return 1\n",
+    "  builtin typeset -a retained || return 1\n",
+    "  builtin typeset f || return 1\n",
+    "  retained=()\n",
     "  for f in \"${precmd_functions[@]}\"; do case \"$f\" in (__nyaterm_emit|__nyaterm_repair_prompt) ;; (*) retained+=(\"$f\");; esac; done\n",
-    "  precmd_functions=(\"${retained[@]}\" __nyaterm_emit __nyaterm_repair_prompt) || return 1\n",
+    "  precmd_functions=(\"${retained[@]}\" __nyaterm_emit) || return 1\n",
     "  retained=()\n",
     "  for f in \"${preexec_functions[@]}\"; do [ \"$f\" = __nyaterm_preexec ] || retained+=(\"$f\"); done\n",
     "  preexec_functions=(\"${retained[@]}\" __nyaterm_preexec) || return 1\n",
-    "}\n",
-    "__nyaterm_repair_prompt(){ local saved_status=$?; __nyaterm_repair_prompt_container || __nyaterm_ready_failed; return \"$saved_status\"; }\n",
-    "__nyaterm_install_prompt(){ __nyaterm_repair_prompt_container; }\n"
+    "}\n"
 );
 
 const FISH_PERSISTENT_SCRIPT: &str = concat!(
@@ -1032,7 +1030,7 @@ mod tests {
     }
 
     #[test]
-    fn persistent_hooks_preserve_status_and_repair_mutated_hook_containers() {
+    fn persistent_hooks_preserve_status_and_fail_open_on_incompatible_containers() {
         let bash = persistent_script(ShellKind::Bash).expect("bash persistent script");
         assert!(bash.contains("local status=$?"));
         assert!(bash.contains("declare -p __nyaterm_extra_prompt_commands"));
@@ -1049,8 +1047,11 @@ mod tests {
         assert!(bash.contains("__nyaterm_failure_reported"));
 
         let zsh = persistent_script(ShellKind::Zsh).expect("zsh persistent script");
-        assert!(zsh.contains("local saved_status=$?"));
-        assert!(zsh.contains("__nyaterm_repair_prompt_container"));
+        assert!(zsh.contains("builtin typeset saved_status=$?"));
+        assert!(zsh.contains("builtin typeset -ga precmd_functions preexec_functions"));
+        assert!(zsh.contains("precmd_functions=(\"${retained[@]}\" __nyaterm_emit)"));
+        assert!(!zsh.contains("__nyaterm_repair_prompt(){"));
+        assert!(!zsh.contains("__nyaterm_emit __nyaterm_repair_prompt)"));
         assert!(zsh.contains("NYATERM_READY_FAILED_MARKER"));
         assert!(zsh.contains("__nyaterm_failure_reported"));
 
@@ -1058,6 +1059,29 @@ mod tests {
         assert!(fish.contains("set -l saved_status $status"));
         assert!(fish.contains("return $saved_status"));
         assert!(fish.contains("functions -q __nyaterm_emit_event"));
+    }
+
+    #[test]
+    fn zsh_hooks_are_installed_once_without_bare_local_or_runtime_repair_hook() {
+        let ready = build_ready_marker("session-1");
+        let direct = injection_script(ShellKind::Zsh, &ready).expect("zsh direct injection");
+        let persistent = persistent_script(ShellKind::Zsh).expect("zsh persistent script");
+
+        for script in [&direct, persistent] {
+            assert!(script.contains("builtin typeset saved_status=$?"));
+            assert!(script.contains("builtin typeset b64"));
+            assert!(script.contains("builtin typeset -ga precmd_functions preexec_functions"));
+            assert!(script.contains("precmd_functions=(\"${retained[@]}\" __nyaterm_emit)"));
+            assert!(script.contains("preexec_functions=(\"${retained[@]}\" __nyaterm_preexec)"));
+            assert!(script.contains("(__nyaterm_emit|__nyaterm_repair_prompt)"));
+            assert!(!script.contains(" local saved_status=$?"));
+            assert!(!script.contains(" local b64"));
+            assert!(!script.contains("__nyaterm_repair_prompt(){"));
+            assert!(!script.contains("__nyaterm_emit __nyaterm_repair_prompt)"));
+        }
+
+        assert!(direct.contains("builtin typeset -a retained"));
+        assert!(persistent.contains("builtin typeset -a retained"));
     }
 
     #[cfg(unix)]
@@ -1298,7 +1322,8 @@ eval "$PROMPT_COMMAND" 2>/dev/null || true
         assert!(bash.contains("__nyaterm_install_prompt"));
         assert!(!bash.contains("__nyaterm_run_saved_prompt_command"));
         assert!(!bash.contains("__nyaterm_repair_prompt"));
-        assert!(zsh.contains("__nyaterm_repair_prompt_container"));
+        assert!(zsh.contains("builtin typeset -ga precmd_functions preexec_functions"));
+        assert!(!zsh.contains("__nyaterm_repair_prompt(){"));
         assert!(fish.contains("return $saved_status"));
     }
 

@@ -46,6 +46,10 @@ pub use util::{
     RemoteTextFile, TextFileOpenResult, WriteRemoteTextResult, classify_text_file,
 };
 
+pub(crate) async fn probe_sftp_subsystem(ssh_handle: &Arc<SshConnectionHandles>) -> AppResult<()> {
+    SftpBackend::probe(ssh_handle).await
+}
+
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CopyEndpointKind {

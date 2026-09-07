@@ -800,6 +800,13 @@ function App() {
     : "";
   const windowTitle = activeTabName ? `${activeTabName} - NyaTerm` : "NyaTerm";
   const activePane = activeTab ? getActivePane(activeTab) : null;
+  const activeSessionId =
+    activePane &&
+    activePane.paneKind === "terminal" &&
+    !activePane.connecting &&
+    !activePane.connectError
+      ? activePane.sessionId
+      : null;
   const activeConnection = activePane?.connectionId
     ? (savedConnections.find((connection) => connection.id === activePane.connectionId) ?? null)
     : null;
@@ -3198,6 +3205,7 @@ function App() {
     handleResetActivityBarLayout,
   } = useActivityBarController({
     uiConfig,
+    activeSessionId,
     recordingSessions,
     multiPanelOpen,
     panelOpenMode,
@@ -3210,13 +3218,6 @@ function App() {
 
   // --- Panel content rendering (side-independent) ---
 
-  const activeSessionId =
-    activePane &&
-    activePane.paneKind === "terminal" &&
-    !activePane.connecting &&
-    !activePane.connectError
-      ? activePane.sessionId
-      : null;
   useMcpActiveSession(activeSessionId);
   const activeSshSessionId =
     activePane &&

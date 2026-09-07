@@ -1,65 +1,65 @@
 import { createEvent, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { preventActivityBarSettingsMouseFocus } from "./ActivityBar";
+import ActivityBar from "./ActivityBar";
 
-describe("ActivityBar settings focus", () => {
-  it("keeps content focus on primary mouse down while preserving click", () => {
-    const onClick = vi.fn();
-    render(<ActivityBarButtonHarness itemId="settings" onClick={onClick} />);
-    const contentInput = screen.getByLabelText("content");
-    const button = screen.getByRole("button", { name: "settings" });
-    contentInput.focus();
+describe("ActivityBar settings interactions", () => {
+  it("keeps the native drag path and mouse activation for settings", () => {
+    const onSelect = vi.fn();
+    renderActivityBar(onSelect);
+    const button = screen.getByRole("button", { name: "Settings" });
     const mouseDown = createEvent.mouseDown(button, { button: 0 });
+    const dataTransfer = {
+      effectAllowed: "",
+      setData: vi.fn(),
+    } as unknown as DataTransfer;
 
     fireEvent(button, mouseDown);
+    fireEvent.dragStart(button, { dataTransfer });
     fireEvent.click(button);
 
-    expect(mouseDown.defaultPrevented).toBe(true);
-    expect(document.activeElement).toBe(contentInput);
-    expect(onClick).toHaveBeenCalledOnce();
-  });
-
-  it("does not change mouse focus behavior for other activity items", () => {
-    render(<ActivityBarButtonHarness itemId="fileExplorer" />);
-    const button = screen.getByRole("button", { name: "fileExplorer" });
-    const mouseDown = createEvent.mouseDown(button, { button: 0 });
-
-    fireEvent(button, mouseDown);
-
+    expect(button).toHaveProperty("draggable", true);
     expect(mouseDown.defaultPrevented).toBe(false);
+    expect(dataTransfer.setData).toHaveBeenCalledWith(
+      "application/x-nyaterm-activity",
+      JSON.stringify({ id: "settings", zone: "left_bottom" }),
+    );
+    expect(dataTransfer.effectAllowed).toBe("move");
+    expect(onSelect).toHaveBeenCalledWith("settings");
   });
 
   it.each(["{Enter}", " "])("still supports keyboard activation with %s", async (key) => {
     const user = userEvent.setup();
-    const onClick = vi.fn();
-    render(<ActivityBarButtonHarness itemId="settings" onClick={onClick} />);
-    const button = screen.getByRole("button", { name: "settings" });
+    const onSelect = vi.fn();
+    renderActivityBar(onSelect);
+    const button = screen.getByRole("button", { name: "Settings" });
     button.focus();
 
     await user.keyboard(key);
 
     expect(document.activeElement).toBe(button);
-    expect(onClick).toHaveBeenCalledOnce();
+    expect(onSelect).toHaveBeenCalledWith("settings");
   });
 });
 
-function ActivityBarButtonHarness({
-  itemId,
-  onClick = vi.fn(),
-}: {
-  itemId: string;
-  onClick?: () => void;
-}) {
-  return (
-    <>
-      <input aria-label="content" />
-      <button
-        type="button"
-        aria-label={itemId}
-        onMouseDown={(event) => preventActivityBarSettingsMouseFocus(event, itemId)}
-        onClick={onClick}
-      />
-    </>
+function renderActivityBar(onSelect: (id: string) => void) {
+  render(
+    <ActivityBar
+      items={[]}
+      bottomItems={[{ id: "settings", icon: null, tooltip: "Settings" }]}
+      activeId={null}
+      onSelect={onSelect}
+      onReorder={vi.fn()}
+      onMoveItem={vi.fn()}
+      onHideItem={vi.fn()}
+      onShowItem={vi.fn()}
+      onToggleLabel={vi.fn()}
+      onRequestResetLayout={vi.fn()}
+      panelOpenMode="docked"
+      onPanelOpenModeChange={vi.fn()}
+      showLabels
+      side="left"
+      zone={{ top: "left_top", bottom: "left_bottom" }}
+    />,
   );
 }

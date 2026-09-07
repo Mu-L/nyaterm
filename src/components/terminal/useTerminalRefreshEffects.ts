@@ -124,6 +124,8 @@ export function useTerminalRefreshEffects({
     if (!terminalReady) return;
 
     let disposed = false;
+    const terminalTextarea = terminalRef.current?.textarea ?? null;
+    let terminalOwnedInputFocus = document.activeElement === terminalTextarea;
     let unlistenResized: (() => void) | undefined;
     let unlistenMoved: (() => void) | undefined;
     let unlistenFocused: (() => void) | undefined;
@@ -181,7 +183,19 @@ export function useTerminalRefreshEffects({
       installResolutionListener();
     };
 
+    const handleTerminalFocus = () => {
+      terminalOwnedInputFocus = true;
+    };
+
+    const handleTerminalBlur = (event: FocusEvent) => {
+      if (event.relatedTarget !== null && document.hasFocus()) {
+        terminalOwnedInputFocus = false;
+      }
+    };
+
     installResolutionListener();
+    terminalTextarea?.addEventListener("focus", handleTerminalFocus);
+    terminalTextarea?.addEventListener("blur", handleTerminalBlur);
 
     const appWindow = getCurrentWindow();
     appWindow
@@ -202,7 +216,11 @@ export function useTerminalRefreshEffects({
       .catch(() => {});
     appWindow
       .onFocusChanged(({ payload }) => {
-        if (!disposed && payload) scheduleWindowFit("window-focus", true);
+        if (disposed || !payload || snapshotRestoringRef?.current) return;
+        scheduleWindowFit("window-focus", true);
+        if (terminalOwnedInputFocus && active && visible) {
+          terminalRef.current?.focus();
+        }
       })
       .then((unlisten) => {
         unlistenFocused = unlisten;
@@ -220,6 +238,8 @@ export function useTerminalRefreshEffects({
     return () => {
       disposed = true;
       resolutionQuery?.removeEventListener("change", handleResolutionChange);
+      terminalTextarea?.removeEventListener("focus", handleTerminalFocus);
+      terminalTextarea?.removeEventListener("blur", handleTerminalBlur);
       unlistenResized?.();
       unlistenMoved?.();
       unlistenFocused?.();

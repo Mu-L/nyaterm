@@ -32,6 +32,7 @@ describe("useTerminalRefreshEffects", () => {
   beforeEach(() => {
     windowMocks.focusChanged = undefined;
     windowMocks.scaleChanged = undefined;
+    vi.restoreAllMocks();
   });
 
   it("repaints an active visible terminal without texture invalidation", () => {
@@ -61,11 +62,63 @@ describe("useTerminalRefreshEffects", () => {
     expect(activeRefresh).not.toHaveProperty("clearTextureAtlas");
   });
 
-  it("forces fit and repaint without stealing focus when the native window regains focus", async () => {
+  it("restores the terminal that owned input focus when the native window regains focus", async () => {
     const schedule = vi.fn();
+    const focus = vi.fn();
+    const textarea = document.createElement("textarea");
+    document.body.append(textarea);
+    textarea.focus();
     renderHook(() =>
       useTerminalRefreshEffects({
-        terminalRef: { current: {} as Terminal },
+        terminalRef: { current: { textarea, focus } as unknown as Terminal },
+        fitSchedulerRef: {
+          current: { schedule } as unknown as TerminalFitScheduler,
+        },
+        active: true,
+        visible: true,
+        terminalReady: true,
+        performanceMode: "normal",
+        sessionId: "session-1",
+        showGutter: false,
+        showContentPadding: false,
+      }),
+    );
+    await waitFor(() => expect(windowMocks.focusChanged).toBeTypeOf("function"));
+    schedule.mockClear();
+    const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    textarea.dispatchEvent(new FocusEvent("blur", { relatedTarget: null }));
+
+    windowMocks.focusChanged?.({ payload: false });
+    expect(schedule).not.toHaveBeenCalled();
+    expect(focus).not.toHaveBeenCalled();
+
+    hasFocus.mockReturnValue(true);
+    windowMocks.focusChanged?.({ payload: true });
+    expect(schedule).toHaveBeenCalledTimes(1);
+    expect(focus).toHaveBeenCalledOnce();
+    expect(schedule).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: "window-focus",
+        force: true,
+        refresh: true,
+        clearTextureAtlas: false,
+        focus: false,
+      }),
+    );
+  });
+
+  it("does not reclaim focus after another in-app control owns DOM focus", async () => {
+    const schedule = vi.fn();
+    const focus = vi.fn();
+    const textarea = document.createElement("textarea");
+    const searchInput = document.createElement("input");
+    document.body.append(textarea, searchInput);
+    textarea.focus();
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+
+    renderHook(() =>
+      useTerminalRefreshEffects({
+        terminalRef: { current: { textarea, focus } as unknown as Terminal },
         fitSchedulerRef: {
           current: { schedule } as unknown as TerminalFitScheduler,
         },
@@ -81,18 +134,55 @@ describe("useTerminalRefreshEffects", () => {
     await waitFor(() => expect(windowMocks.focusChanged).toBeTypeOf("function"));
     schedule.mockClear();
 
-    windowMocks.focusChanged?.({ payload: false });
-    expect(schedule).not.toHaveBeenCalled();
-
+    textarea.dispatchEvent(
+      new FocusEvent("blur", {
+        relatedTarget: searchInput,
+      }),
+    );
     windowMocks.focusChanged?.({ payload: true });
-    expect(schedule).toHaveBeenCalledTimes(1);
+
+    expect(focus).not.toHaveBeenCalled();
     expect(schedule).toHaveBeenCalledWith(
       expect.objectContaining({
         reason: "window-focus",
         force: true,
         refresh: true,
-        clearTextureAtlas: false,
         focus: false,
+      }),
+    );
+  });
+
+  it("keeps the active refresh focus path when a hidden terminal becomes active and visible", () => {
+    const schedule = vi.fn();
+    const terminalRef = { current: {} as Terminal };
+    const fitSchedulerRef = {
+      current: { schedule } as unknown as TerminalFitScheduler,
+    };
+    const { rerender } = renderHook(
+      ({ active, visible }) =>
+        useTerminalRefreshEffects({
+          terminalRef,
+          fitSchedulerRef,
+          active,
+          visible,
+          terminalReady: true,
+          performanceMode: "normal",
+          sessionId: "session-1",
+          showGutter: false,
+          showContentPadding: false,
+        }),
+      { initialProps: { active: false, visible: false } },
+    );
+    schedule.mockClear();
+
+    rerender({ active: true, visible: true });
+
+    expect(schedule).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: "active",
+        force: true,
+        refresh: true,
+        focus: true,
       }),
     );
   });

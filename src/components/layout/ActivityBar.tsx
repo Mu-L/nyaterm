@@ -1,5 +1,6 @@
 import {
   type DragEvent,
+  type MouseEvent,
   type MutableRefObject,
   type PointerEvent,
   type ReactNode,
@@ -38,6 +39,15 @@ export interface ActivityBarItem {
 
 const DRAG_MIME = "application/x-nyaterm-activity";
 const POINTER_DRAG_THRESHOLD_PX = 4;
+
+export function preventActivityBarSettingsMouseFocus(
+  event: MouseEvent<HTMLButtonElement>,
+  itemId: string,
+) {
+  if (itemId === "settings" && event.button === 0) {
+    event.preventDefault();
+  }
+}
 
 interface PointerActivityDragState {
   itemId: string;
@@ -562,6 +572,7 @@ function ActivityBarButton({
               onPointerMove={onPointerMove}
               onPointerUp={onPointerEnd}
               onPointerCancel={onPointerCancel}
+              onMouseDown={(event) => preventActivityBarSettingsMouseFocus(event, item.id)}
               onContextMenu={(event) => event.stopPropagation()}
               className={`relative flex flex-col items-center justify-center w-full transition-colors ${showLabel ? "min-h-12 gap-0.5 py-1" : "h-9"}`}
               style={{

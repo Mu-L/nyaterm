@@ -2558,12 +2558,6 @@
     "title": "SFTP",
     "useFileExplorer": "请使用文件管理器浏览和传输文件。"
   },
-  "sftpRuntime": {
-    "disconnected": "SFTP 连接已断开",
-    "openedWithoutShell": "此连接以 SFTP-only 模式打开，未建立远程 Shell 会话。",
-    "title": "SFTP",
-    "useFileExplorer": "请使用文件管理器浏览和传输文件。"
-  },
   "sshAgentAuth": {
     "endpoint": {
       "auto": "系统默认 Agent",

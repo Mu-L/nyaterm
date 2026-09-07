@@ -2559,12 +2559,6 @@
     "title": "SFTP",
     "useFileExplorer": "Use File Explorer to browse and transfer files."
   },
-  "sftpRuntime": {
-    "disconnected": "SFTP connection disconnected",
-    "openedWithoutShell": "This connection is open in SFTP-only mode. No remote Shell session was created.",
-    "title": "SFTP",
-    "useFileExplorer": "Use File Explorer to browse and transfer files."
-  },
   "sshAgentAuth": {
     "endpoint": {
       "auto": "System default Agent",

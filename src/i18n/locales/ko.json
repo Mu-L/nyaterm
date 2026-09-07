@@ -2552,12 +2552,6 @@
     "title": "SFTP",
     "useFileExplorer": "파일 탐색기에서 파일을 탐색하고 전송하세요."
   },
-  "sftpRuntime": {
-    "disconnected": "SFTP 연결이 끊어졌습니다",
-    "openedWithoutShell": "이 연결은 SFTP 전용 모드로 열렸으며 원격 Shell 세션은 생성되지 않았습니다.",
-    "title": "SFTP",
-    "useFileExplorer": "파일 탐색기에서 파일을 탐색하고 전송하세요."
-  },
   "sshAgentAuth": {
     "endpoint": {
       "auto": "시스템 기본 Agent",

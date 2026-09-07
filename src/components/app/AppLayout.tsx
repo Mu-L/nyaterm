@@ -118,6 +118,7 @@ interface AppLayoutProps {
     activeSerialSessionId: string | null;
     activeNonSerialSessionId: string | null;
     activeNonSerialSessionIds: string[];
+    quickCommandsDisabled: boolean;
     syncGroups: SyncGroup[];
     currentWindowLabel: string;
     sessionTargets: {
@@ -488,6 +489,7 @@ export default function AppLayout({
                   <QuickCommands
                     onSend={bottomPanel.onCommandSend}
                     onSendToAll={bottomPanel.onSendToAllSessions}
+                    sendDisabled={bottomPanel.quickCommandsDisabled}
                   />
                 </div>
               </>

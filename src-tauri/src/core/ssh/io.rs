@@ -1781,6 +1781,10 @@ pub(super) async fn sftp_only_ssh_lifecycle_loop(
     let close_reason =
         run_sftp_only_session_commands(&session_id, &manager, cmd_rx, disconnect_rx).await;
 
+    if let Some(stats_sampler) = app.try_state::<Arc<RemoteStatsSampler>>() {
+        stats_sampler.clear_session(&session_id).await;
+    }
+
     if let Some(ref conn_id) = connection_id {
         if let Some(tunnel_mgr) = app.try_state::<Arc<super::TunnelManager>>() {
             tunnel_mgr
@@ -2334,6 +2338,7 @@ mod tests {
             remote_file_browser_enabled: true,
             remote_stats_enabled: false,
             ssh_profile: Some(SshProfile::Standard),
+            ssh_runtime_mode: Some(crate::config::SshRuntimeMode::Sftp),
         };
         manager
             .add_session(SessionHandle {
@@ -2417,6 +2422,7 @@ mod tests {
             remote_file_browser_enabled: true,
             remote_stats_enabled: false,
             ssh_profile: Some(SshProfile::Standard),
+            ssh_runtime_mode: Some(crate::config::SshRuntimeMode::Sftp),
         };
         manager
             .add_session(SessionHandle {

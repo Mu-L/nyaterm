@@ -72,18 +72,6 @@ async fn create_session_connection_with_disconnect(
     }
 }
 
-async fn create_sftp_only_replacement_connection(
-    app: &AppHandle,
-    config: &SshConfig,
-    diagnostics: &SshDiagnosticContext,
-) -> AppResult<(SshHandle, mpsc::UnboundedReceiver<String>)> {
-    let (connection, _x11_rx, disconnect_rx) =
-        create_session_connection_with_disconnect(app, config, false, Some(diagnostics.clone()))
-            .await?;
-    crate::core::sftp::probe_sftp_subsystem(&connection).await?;
-    Ok((connection, disconnect_rx))
-}
-
 async fn create_authenticated_connection_with_notifications(
     app: &AppHandle,
     config: &SshConfig,
@@ -392,11 +380,11 @@ struct SshRuntimeCapabilities {
 fn resolve_runtime_capabilities(config: &SshConfig) -> SshRuntimeCapabilities {
     let network_device_profile = config.ssh_profile == SshProfile::NetworkDevice;
     let terminal_only = config.runtime_mode == SshRuntimeMode::Terminal;
+    let sftp_only = config.runtime_mode == SshRuntimeMode::Sftp;
     SshRuntimeCapabilities {
         remote_file_browser_enabled: config.sftp.enabled
-            && !network_device_profile
-            && !terminal_only,
-        remote_stats_enabled: !network_device_profile && !terminal_only,
+            && (sftp_only || (!network_device_profile && !terminal_only)),
+        remote_stats_enabled: !network_device_profile && !terminal_only && !sftp_only,
         network_device_profile,
     }
 }
@@ -439,8 +427,19 @@ where
 fn apply_sftp_only_runtime_policy(info: &mut SessionInfo) {
     info.ai_execution_profile = AiExecutionProfile::Disabled;
     info.injection_active = false;
+    info.dynamic_title_capabilities = DynamicTitleCapabilities::default();
     info.remote_file_browser_enabled = true;
     info.remote_stats_enabled = false;
+    info.ssh_runtime_mode = Some(SshRuntimeMode::Sftp);
+}
+
+fn validate_runtime_config(config: &SshConfig) -> AppResult<()> {
+    if config.runtime_mode == SshRuntimeMode::Sftp && !config.sftp.enabled {
+        return Err(AppError::Config(
+            "SFTP is disabled for this SSH connection".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 /// Creates an authenticated SSH handle for a saved connection without opening a PTY/shell.
@@ -546,15 +545,22 @@ async fn create_ssh_session_inner(
     let session_id = uuid::Uuid::new_v4().to_string();
     let diagnostics = SshDiagnosticContext::new(Some(session_id.clone()));
     let (cmd_tx, cmd_rx) = session_command_channel(session_id.clone());
+    let explicit_sftp = config.runtime_mode == SshRuntimeMode::Sftp;
 
-    let x11_config = if config.x11_forwarding {
+    validate_runtime_config(&config)?;
+
+    let x11_config = if config.x11_forwarding && !explicit_sftp {
         Some(super::x11_forwarding::prepare_x11_forwarding(&config.x11_display).await)
     } else {
         None
     };
-    let (mut ssh_connection, x11_rx, mut disconnect_rx) =
-        create_session_connection_with_disconnect(&app, &config, true, Some(diagnostics.clone()))
-            .await?;
+    let (ssh_connection, x11_rx, disconnect_rx) = create_session_connection_with_disconnect(
+        &app,
+        &config,
+        !explicit_sftp,
+        Some(diagnostics.clone()),
+    )
+    .await?;
     diagnostics.set_stage(SshDiagnosticStage::Authenticated);
     let capabilities = resolve_runtime_capabilities(&config);
     let effective_cwd_follow_mode = effective_cwd_follow_mode_for_runtime(
@@ -577,67 +583,42 @@ async fn create_ssh_session_inner(
         shell_detection_timeout_ms = config.sftp.shell_detection_timeout_ms,
         "SSH session initialization starting"
     );
-    let handle_mtx = ssh_connection.target_handle();
-    let mut handle = handle_mtx.lock().await;
-    let forwarding_enabled =
-        should_attach_agent_forwarding(true, effective_forwarding_config(&config).enabled);
+    let (shell, sftp_only) = if explicit_sftp {
+        crate::core::sftp::probe_sftp_subsystem(&ssh_connection).await?;
+        tracing::info!(session_id = %session_id, "Explicit SFTP-only runtime established");
+        (None, true)
+    } else {
+        let handle_mtx = ssh_connection.target_handle();
+        let mut handle = handle_mtx.lock().await;
+        let forwarding_enabled =
+            should_attach_agent_forwarding(true, effective_forwarding_config(&config).enabled);
+        let shell_result = open_shell_channel(
+            &mut handle,
+            &session_id,
+            x11_config.as_ref().map(|cfg| cfg.fake_cookie_hex.as_str()),
+            forwarding_enabled,
+            config.terminal_type.as_str(),
+            capabilities.remote_file_browser_enabled,
+            capabilities.network_device_profile,
+            effective_cwd_follow_mode,
+            config.sftp.shell_detection_timeout_ms,
+            Some(diagnostics.clone()),
+        )
+        .await;
+        drop(handle);
 
-    let shell_result = open_shell_channel(
-        &mut handle,
-        &session_id,
-        x11_config.as_ref().map(|cfg| cfg.fake_cookie_hex.as_str()),
-        forwarding_enabled,
-        config.terminal_type.as_str(),
-        capabilities.remote_file_browser_enabled,
-        capabilities.network_device_profile,
-        effective_cwd_follow_mode,
-        config.sftp.shell_detection_timeout_ms,
-        Some(diagnostics.clone()),
-    )
-    .await;
-    drop(handle);
-    let mut sftp_only = false;
-    let shell = match shell_result {
-        Ok(shell) => Some(shell),
-        Err(shell_error) => {
-            let same_transport_probe = try_sftp_only_fallback(
-                &session_id,
-                capabilities.remote_file_browser_enabled,
-                shell_error,
-                || crate::core::sftp::probe_sftp_subsystem(&ssh_connection),
-            )
-            .await;
-            match same_transport_probe {
-                Ok(()) => {
-                    sftp_only = true;
-                    None
-                }
-                Err(shell_error) => {
-                    if !capabilities.remote_file_browser_enabled {
-                        return Err(shell_error);
-                    }
-                    match create_sftp_only_replacement_connection(&app, &config, &diagnostics).await
-                    {
-                        Ok((replacement, replacement_disconnect_rx)) => {
-                            ssh_connection = replacement;
-                            disconnect_rx = replacement_disconnect_rx;
-                            sftp_only = true;
-                            tracing::info!(
-                                session_id = %session_id,
-                                "SFTP-only fallback recovered on a fresh authenticated transport"
-                            );
-                            None
-                        }
-                        Err(reconnect_error) => {
-                            tracing::warn!(
-                                session_id = %session_id,
-                                %reconnect_error,
-                                "Fresh SSH transport could not establish SFTP-only fallback"
-                            );
-                            return Err(shell_error);
-                        }
-                    }
-                }
+        match shell_result {
+            Ok(shell) => (Some(shell), false),
+            Err(shell_error) => {
+                try_sftp_only_fallback(
+                    &session_id,
+                    capabilities.remote_file_browser_enabled,
+                    shell_error,
+                    || crate::core::sftp::probe_sftp_subsystem(&ssh_connection),
+                )
+                .await?;
+                config.runtime_mode = SshRuntimeMode::Sftp;
+                (None, true)
             }
         }
     };
@@ -671,6 +652,7 @@ async fn create_ssh_session_inner(
         remote_file_browser_enabled: capabilities.remote_file_browser_enabled,
         remote_stats_enabled: capabilities.remote_stats_enabled,
         ssh_profile: Some(config.ssh_profile.clone()),
+        ssh_runtime_mode: Some(config.runtime_mode),
     };
     if sftp_only {
         apply_sftp_only_runtime_policy(&mut session_info);
@@ -775,6 +757,11 @@ pub async fn create_multiplexed_ssh_session(
         if source.info.session_type != SessionType::SSH {
             return Err(AppError::Config(
                 "Source session is not an SSH session".to_string(),
+            ));
+        }
+        if source.info.ssh_runtime_mode == Some(SshRuntimeMode::Sftp) {
+            return Err(AppError::Config(
+                "SFTP-only sessions cannot open multiplexed shell sessions".to_string(),
             ));
         }
 
@@ -887,6 +874,7 @@ pub async fn create_multiplexed_ssh_session(
         remote_file_browser_enabled: capabilities.remote_file_browser_enabled,
         remote_stats_enabled: capabilities.remote_stats_enabled,
         ssh_profile: Some(config.ssh_profile.clone()),
+        ssh_runtime_mode: Some(config.runtime_mode),
     };
 
     let cwd: SharedCwd = Arc::new(tokio::sync::Mutex::new(Default::default()));
@@ -952,6 +940,7 @@ mod tests {
     use super::{
         apply_sftp_only_runtime_policy, is_agent_auth_retry, is_raw_agent_forwarding_config,
         resolve_runtime_capabilities, should_attach_agent_forwarding, try_sftp_only_fallback,
+        validate_runtime_config,
     };
     use crate::config::{
         SftpCwdFollowMode, SftpSettings, SshAgentEndpoint, SshAgentForwardingConfig,
@@ -1064,7 +1053,6 @@ mod tests {
     enum TestShellBehavior {
         Reject,
         AcceptWithoutExec,
-        Disconnect,
     }
 
     fn assert_fake_server_session(result: Result<(), russh::Error>) {
@@ -1078,6 +1066,8 @@ mod tests {
     struct SftpOnlyTestServer {
         channels: Arc<Mutex<HashMap<ChannelId, Channel<server::Msg>>>>,
         allow_sftp: bool,
+        pty_requests: Arc<AtomicUsize>,
+        shell_requests: Arc<AtomicUsize>,
         subsystem_requests: Arc<AtomicUsize>,
         shell_behavior: TestShellBehavior,
         single_session_channel: bool,
@@ -1127,6 +1117,7 @@ mod tests {
             _modes: &[(russh::Pty, u32)],
             session: &mut server::Session,
         ) -> Result<(), Self::Error> {
+            self.pty_requests.fetch_add(1, Ordering::SeqCst);
             session.channel_success(channel)?;
             Ok(())
         }
@@ -1136,12 +1127,10 @@ mod tests {
             channel: ChannelId,
             session: &mut server::Session,
         ) -> Result<(), Self::Error> {
+            self.shell_requests.fetch_add(1, Ordering::SeqCst);
             match self.shell_behavior {
                 TestShellBehavior::Reject => session.channel_failure(channel)?,
                 TestShellBehavior::AcceptWithoutExec => session.channel_success(channel)?,
-                TestShellBehavior::Disconnect => {
-                    session.disconnect(Disconnect::ByApplication, "SFTP-only account", "")?;
-                }
             }
             Ok(())
         }
@@ -1244,9 +1233,13 @@ mod tests {
         client::Handle<SftpOnlyTestClient>,
         tokio::task::JoinHandle<()>,
         Arc<AtomicUsize>,
+        Arc<AtomicUsize>,
+        Arc<AtomicUsize>,
     ) {
         let (client_stream, server_stream) = tokio::io::duplex(1024 * 1024);
         let channels = Arc::new(Mutex::new(HashMap::new()));
+        let pty_requests = Arc::new(AtomicUsize::new(0));
+        let shell_requests = Arc::new(AtomicUsize::new(0));
         let subsystem_requests = Arc::new(AtomicUsize::new(0));
         let mut rng = russh::keys::key::safe_rng();
         let server_config = Arc::new(server::Config {
@@ -1259,6 +1252,8 @@ mod tests {
             ..server::Config::default()
         });
         let server_channels = channels.clone();
+        let server_pty_requests = pty_requests.clone();
+        let server_shell_requests = shell_requests.clone();
         let server_subsystem_requests = subsystem_requests.clone();
         let server_task = tokio::spawn(async move {
             let session = server::run_stream(
@@ -1267,6 +1262,8 @@ mod tests {
                 SftpOnlyTestServer {
                     channels: server_channels,
                     allow_sftp,
+                    pty_requests: server_pty_requests,
+                    shell_requests: server_shell_requests,
                     subsystem_requests: server_subsystem_requests,
                     shell_behavior,
                     single_session_channel,
@@ -1291,7 +1288,13 @@ mod tests {
                 .expect("none authentication")
                 .success()
         );
-        (handle, server_task, subsystem_requests)
+        (
+            handle,
+            server_task,
+            pty_requests,
+            shell_requests,
+            subsystem_requests,
+        )
     }
 
     async fn open_rejected_shell(handle: &mut client::Handle<SftpOnlyTestClient>) -> AppError {
@@ -1409,9 +1412,91 @@ mod tests {
         assert!(!capabilities.network_device_profile);
     }
 
+    #[test]
+    fn sftp_runtime_enables_file_browser_for_network_device_profiles() {
+        let mut config = test_config(SshProfile::NetworkDevice);
+        config.runtime_mode = SshRuntimeMode::Sftp;
+
+        let capabilities = resolve_runtime_capabilities(&config);
+
+        assert!(capabilities.remote_file_browser_enabled);
+        assert!(!capabilities.remote_stats_enabled);
+        assert!(capabilities.network_device_profile);
+    }
+
+    #[test]
+    fn explicit_sftp_runtime_rejects_disabled_sftp_before_connecting() {
+        let mut config = test_config(SshProfile::Standard);
+        config.runtime_mode = SshRuntimeMode::Sftp;
+        config.sftp.enabled = false;
+
+        let error = validate_runtime_config(&config).expect_err("disabled SFTP must fail");
+
+        assert!(error.to_string().contains("SFTP is disabled"));
+    }
+
+    #[tokio::test]
+    async fn explicit_sftp_runtime_requests_only_the_sftp_subsystem() {
+        let (handle, server_task, pty_requests, shell_requests, subsystem_requests) =
+            start_sftp_only_test_connection(true, TestShellBehavior::Reject, false).await;
+
+        probe_real_sftp(&handle, true)
+            .await
+            .expect("explicit SFTP probe must succeed");
+
+        assert_eq!(pty_requests.load(Ordering::SeqCst), 0);
+        assert_eq!(shell_requests.load(Ordering::SeqCst), 0);
+        assert_eq!(subsystem_requests.load(Ordering::SeqCst), 1);
+        stop_sftp_only_test_connection(&handle, server_task).await;
+    }
+
+    #[tokio::test]
+    async fn explicit_sftp_runtime_fails_when_subsystem_is_rejected() {
+        let (handle, server_task, pty_requests, shell_requests, subsystem_requests) =
+            start_sftp_only_test_connection(false, TestShellBehavior::Reject, false).await;
+
+        let error = probe_real_sftp(&handle, false)
+            .await
+            .expect_err("rejected SFTP subsystem must fail session preparation");
+
+        assert!(error.to_string().contains("rejected"));
+        assert_eq!(pty_requests.load(Ordering::SeqCst), 0);
+        assert_eq!(shell_requests.load(Ordering::SeqCst), 0);
+        assert_eq!(subsystem_requests.load(Ordering::SeqCst), 1);
+        stop_sftp_only_test_connection(&handle, server_task).await;
+    }
+
+    #[tokio::test]
+    async fn standard_runtime_does_not_probe_sftp_after_shell_success() {
+        let (mut handle, server_task, pty_requests, shell_requests, subsystem_requests) =
+            start_sftp_only_test_connection(true, TestShellBehavior::AcceptWithoutExec, false)
+                .await;
+
+        let (channel, ..) = super::open_shell_channel(
+            &mut handle,
+            "standard-shell-success-test",
+            None,
+            false,
+            "xterm-256color",
+            true,
+            false,
+            SftpCwdFollowMode::Off,
+            50,
+            None,
+        )
+        .await
+        .expect("standard Shell path must remain successful");
+
+        assert_eq!(pty_requests.load(Ordering::SeqCst), 1);
+        assert_eq!(shell_requests.load(Ordering::SeqCst), 1);
+        assert_eq!(subsystem_requests.load(Ordering::SeqCst), 0);
+        let _ = channel.close().await;
+        stop_sftp_only_test_connection(&handle, server_task).await;
+    }
+
     #[tokio::test]
     async fn sftp_only_fallback_accepts_sftp_when_shell_is_rejected() {
-        let (mut handle, server_task, subsystem_requests) =
+        let (mut handle, server_task, _pty_requests, _shell_requests, subsystem_requests) =
             start_sftp_only_test_connection(true, TestShellBehavior::Reject, true).await;
         let shell_error = open_rejected_shell(&mut handle).await;
 
@@ -1439,6 +1524,7 @@ mod tests {
             remote_file_browser_enabled: false,
             remote_stats_enabled: true,
             ssh_profile: Some(SshProfile::Standard),
+            ssh_runtime_mode: Some(SshRuntimeMode::Standard),
         };
         apply_sftp_only_runtime_policy(&mut info);
         manager
@@ -1462,15 +1548,21 @@ mod tests {
             registered[0].ai_execution_profile,
             crate::config::AiExecutionProfile::Disabled
         );
+        assert_eq!(registered[0].ssh_runtime_mode, Some(SshRuntimeMode::Sftp));
 
         stop_sftp_only_test_connection(&handle, server_task).await;
     }
 
     #[tokio::test]
     async fn interactive_shell_is_preserved_when_shell_detection_exec_is_rejected() {
-        let (mut shell_handle, shell_server_task, subsystem_requests) =
-            start_sftp_only_test_connection(true, TestShellBehavior::AcceptWithoutExec, false)
-                .await;
+        let (
+            mut shell_handle,
+            shell_server_task,
+            _pty_requests,
+            _shell_requests,
+            subsystem_requests,
+        ) = start_sftp_only_test_connection(true, TestShellBehavior::AcceptWithoutExec, false)
+            .await;
 
         let (channel, injection_script, _, detected_shell, _) = super::open_shell_channel(
             &mut shell_handle,
@@ -1498,35 +1590,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sftp_only_fallback_recovers_after_shell_attempt_disconnects_transport() {
-        let (mut broken_handle, broken_server_task, _subsystem_requests) =
-            start_sftp_only_test_connection(true, TestShellBehavior::Disconnect, false).await;
-        let shell_error = open_rejected_shell(&mut broken_handle).await;
-        assert!(
-            shell_error.to_string().contains("Shell")
-                || shell_error.to_string().contains("channel")
-                || shell_error.to_string().contains("SSH"),
-            "disconnecting shell attempt must fail interactive setup"
-        );
-        assert!(
-            probe_real_sftp(&broken_handle, false).await.is_err(),
-            "disconnected transport must not be reusable for SFTP"
-        );
-
-        let (fresh_handle, fresh_server_task, fresh_subsystem_requests) =
-            start_sftp_only_test_connection(true, TestShellBehavior::Reject, false).await;
-        probe_real_sftp(&fresh_handle, true)
-            .await
-            .expect("fresh authenticated transport must recover SFTP-only access");
-        assert_eq!(fresh_subsystem_requests.load(Ordering::SeqCst), 1);
-
-        stop_sftp_only_test_connection(&fresh_handle, fresh_server_task).await;
-        stop_sftp_only_test_connection(&broken_handle, broken_server_task).await;
-    }
-
-    #[tokio::test]
     async fn sftp_only_fallback_preserves_shell_error_when_sftp_probe_fails() {
-        let (mut handle, server_task, subsystem_requests) =
+        let (mut handle, server_task, _pty_requests, _shell_requests, subsystem_requests) =
             start_sftp_only_test_connection(false, TestShellBehavior::Reject, false).await;
         let shell_error = open_rejected_shell(&mut handle).await;
         let shell_error_text = shell_error.to_string();
@@ -1543,7 +1608,7 @@ mod tests {
 
     #[tokio::test]
     async fn sftp_only_fallback_skips_probe_when_file_browser_is_disabled() {
-        let (mut handle, server_task, subsystem_requests) =
+        let (mut handle, server_task, _pty_requests, _shell_requests, subsystem_requests) =
             start_sftp_only_test_connection(true, TestShellBehavior::Reject, false).await;
         let shell_error = open_rejected_shell(&mut handle).await;
         let shell_error_text = shell_error.to_string();
@@ -1575,6 +1640,7 @@ mod tests {
             remote_file_browser_enabled: false,
             remote_stats_enabled: true,
             ssh_profile: Some(SshProfile::Standard),
+            ssh_runtime_mode: Some(SshRuntimeMode::Standard),
         };
 
         apply_sftp_only_runtime_policy(&mut info);
@@ -1588,6 +1654,7 @@ mod tests {
             info.ai_execution_profile,
             crate::config::AiExecutionProfile::Disabled
         );
+        assert_eq!(info.ssh_runtime_mode, Some(SshRuntimeMode::Sftp));
     }
 
     #[test]

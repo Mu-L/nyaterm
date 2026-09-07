@@ -1707,6 +1707,7 @@
     "notSet": "未设置",
     "openAllConnections": "打开全部连接",
     "openAllConnectionsConfirm": "确定要打开文件夹「{{name}}」中的 {{count}} 个连接吗？",
+    "openWithSftp": "使用 SFTP 打开",
     "parity": "校验位",
     "port": "端口",
     "rename": "重命名",
@@ -2550,6 +2551,18 @@
     "x11Display": "本地 X11 DISPLAY",
     "x11DisplayDesc": "需要本机已安装并启动 X server。Windows 可使用 VcXsrv/Xming，macOS 可使用 XQuartz，Linux 通常使用 Xorg/Xwayland。",
     "x11DisplayPlaceholder": "Windows: localhost:0 / Linux/macOS: :0"
+  },
+  "sftpRuntime": {
+    "disconnected": "SFTP 连接已断开",
+    "openedWithoutShell": "此连接以 SFTP-only 模式打开，未建立远程 Shell 会话。",
+    "title": "SFTP",
+    "useFileExplorer": "请使用文件管理器浏览和传输文件。"
+  },
+  "sftpRuntime": {
+    "disconnected": "SFTP 连接已断开",
+    "openedWithoutShell": "此连接以 SFTP-only 模式打开，未建立远程 Shell 会话。",
+    "title": "SFTP",
+    "useFileExplorer": "请使用文件管理器浏览和传输文件。"
   },
   "sshAgentAuth": {
     "endpoint": {

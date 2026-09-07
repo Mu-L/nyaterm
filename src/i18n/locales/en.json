@@ -1708,6 +1708,7 @@
     "notSet": "Not set",
     "openAllConnections": "Open All",
     "openAllConnectionsConfirm": "Open all {{count}} connections in folder '{{name}}'?",
+    "openWithSftp": "Open with SFTP",
     "parity": "Parity",
     "port": "Port",
     "rename": "Rename",
@@ -2551,6 +2552,18 @@
     "x11Display": "Local X11 DISPLAY",
     "x11DisplayDesc": "Requires a local X server. Windows can use VcXsrv/Xming, macOS can use XQuartz, and Linux usually uses Xorg/Xwayland.",
     "x11DisplayPlaceholder": "Windows: localhost:0 / Linux/macOS: :0"
+  },
+  "sftpRuntime": {
+    "disconnected": "SFTP connection disconnected",
+    "openedWithoutShell": "This connection is open in SFTP-only mode. No remote Shell session was created.",
+    "title": "SFTP",
+    "useFileExplorer": "Use File Explorer to browse and transfer files."
+  },
+  "sftpRuntime": {
+    "disconnected": "SFTP connection disconnected",
+    "openedWithoutShell": "This connection is open in SFTP-only mode. No remote Shell session was created.",
+    "title": "SFTP",
+    "useFileExplorer": "Use File Explorer to browse and transfer files."
   },
   "sshAgentAuth": {
     "endpoint": {

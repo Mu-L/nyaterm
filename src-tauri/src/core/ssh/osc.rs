@@ -130,7 +130,7 @@ pub fn injection_script(shell: ShellKind, ready_marker: &str) -> Option<String> 
                 " __nyaterm_host(){{ hostname 2>/dev/null || printf localhost; }};",
                 " __nyaterm_ready_failed(){{ [ -n \"${{__nyaterm_failure_reported:-}}\" ] || {{ __nyaterm_failure_reported=1; printf '%s' \"${{NYATERM_READY_FAILED_MARKER-}}\"; }}; }};",
                 " __nyaterm_emit(){{",
-                " builtin typeset saved_status=$?; builtin typeset cwd=\"${{PWD//%/%25}}\"; printf '\\033]7;file://%s%s\\007' \"$(__nyaterm_host)\" \"$cwd\"; return \"$saved_status\";",
+                " builtin typeset saved_status=$?; builtin typeset cwd=\"${{PWD//\\%/%25}}\"; printf '\\033]7;file://%s%s\\007' \"$(__nyaterm_host)\" \"$cwd\"; return \"$saved_status\";",
                 " }};",
                 " __nyaterm_preexec(){{",
                 " builtin typeset saved_status=$?; if [ -n \"$1\" ]; then",
@@ -307,7 +307,7 @@ const ZSH_PERSISTENT_SCRIPT: &str = concat!(
     "__nyaterm_emit(){\n",
     "  builtin typeset saved_status=$?\n",
     "  if [ -n \"${NYATERM_READY_PENDING:-}\" ]; then unset NYATERM_READY_PENDING; printf '%s' \"${NYATERM_READY_MARKER-}\"; fi\n",
-    "  builtin typeset cwd=\"${PWD//%/%25}\"\n",
+    "  builtin typeset cwd=\"${PWD//\\%/%25}\"\n",
     "  printf '\\033]7;file://%s%s\\007' \"$(__nyaterm_host)\" \"$cwd\"\n",
     "  return \"$saved_status\"\n",
     "}\n",
@@ -1281,7 +1281,7 @@ eval "$PROMPT_COMMAND" 2>/dev/null || true
         assert!(fish.contains("printf '\\033]7;file://%s%s\\007'"));
         assert_no_empty_tail_printf(&fish);
         assert!(bash.contains("${PWD//%/%25}"));
-        assert!(zsh.contains("${PWD//%/%25}"));
+        assert!(zsh.contains("${PWD//\\%/%25}"));
         assert!(fish.contains("string replace -a '%' '%25' -- $PWD"));
         assert!(
             persistent_script(ShellKind::Bash)
@@ -1291,7 +1291,7 @@ eval "$PROMPT_COMMAND" 2>/dev/null || true
         assert!(
             persistent_script(ShellKind::Zsh)
                 .expect("zsh persistent script")
-                .contains("${PWD//%/%25}")
+                .contains("${PWD//\\%/%25}")
         );
         assert!(
             persistent_script(ShellKind::Fish)
@@ -1325,6 +1325,34 @@ eval "$PROMPT_COMMAND" 2>/dev/null || true
         assert!(zsh.contains("builtin typeset -ga precmd_functions preexec_functions"));
         assert!(!zsh.contains("__nyaterm_repair_prompt(){"));
         assert!(fish.contains("return $saved_status"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn native_zsh_percent_escape_does_not_append_to_plain_cwd() {
+        use std::process::Command;
+
+        let output = Command::new("/bin/zsh")
+            .args([
+                "-fc",
+                concat!(
+                    "plain='/opt/tomcat/bin'; ",
+                    "percent='/opt/100%'; ",
+                    "printf '%s\\n%s\\n' \"${plain//\\%/%25}\" \"${percent//\\%/%25}\"",
+                ),
+            ])
+            .output()
+            .expect("run native zsh percent escaping");
+
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "/opt/tomcat/bin\n/opt/100%25\n"
+        );
     }
 
     #[test]

@@ -965,6 +965,22 @@ impl RemoteFs for SftpBackend {
 
         match result {
             Ok(summary) => {
+                let first_failure = summary.first_failure.as_ref();
+                let failure_detail =
+                    first_failure.map(|failure| format!("{}: {}", failure.path, failure.error));
+                if summary.total_files > 0 && summary.failure_count == summary.total_files {
+                    let error = AppError::Channel(format!(
+                        "All {} files failed to upload; first failure: {}",
+                        summary.failure_count,
+                        failure_detail.as_deref().unwrap_or("unknown error")
+                    ));
+                    let _ = app.emit(
+                        "transfer-event",
+                        &directory_controller.build_event("error", 0, Some(error.to_string())),
+                    );
+                    unregister_transfer(&directory_controller.id());
+                    return Err(error);
+                }
                 log_transfer_performance(
                     "upload",
                     "directory",
@@ -977,9 +993,16 @@ impl RemoteFs for SftpBackend {
                 );
                 directory_controller.update_progress(summary.bytes, summary.bytes);
                 directory_controller.update_item_progress(summary.completed, summary.total_files);
+                let warning = (summary.failure_count > 0).then(|| {
+                    format!(
+                        "Skipped {} failed file(s); first failure: {}",
+                        summary.failure_count,
+                        failure_detail.as_deref().unwrap_or("unknown error")
+                    )
+                });
                 let _ = app.emit(
                     "transfer-event",
-                    &directory_controller.build_event("completed", 0, None),
+                    &directory_controller.build_event("completed", 0, warning),
                 );
                 unregister_transfer(&directory_controller.id());
                 Ok(())

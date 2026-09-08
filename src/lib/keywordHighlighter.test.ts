@@ -132,6 +132,7 @@ function createHarness(options: {
   const renderListeners = new Set<() => void>();
   const markers: FakeMarker[] = [];
   const decorations: DecorationRecord[] = [];
+  const getLineSpy = vi.fn((lineY: number) => options.lines[lineY]);
   const active = {
     type: "normal" as "normal" | "alternate",
     baseY: options.baseY,
@@ -140,7 +141,7 @@ function createHarness(options: {
     get length() {
       return options.lines.length;
     },
-    getLine: (lineY: number) => options.lines[lineY],
+    getLine: getLineSpy,
     getNullCell: () => createCell(),
   };
   const subscribe = (listeners: Set<() => void>, listener: () => void): IDisposable => {
@@ -174,6 +175,7 @@ function createHarness(options: {
   return {
     active,
     decorations,
+    getLineSpy,
     markers,
     terminal,
     render: () => {
@@ -714,6 +716,182 @@ describe("KeywordHighlighter", () => {
       highlighter.dispose();
     },
   );
+
+  it.each([false, true])(
+    "bounds a 10,000-row logical line and reuses immutable suppression (%s)",
+    (highlightAcrossWrappedLines) => {
+      const giantRows = 10_000;
+      const normalY = giantRows;
+      const lines = Array.from({ length: giantRows + 1 }, (_, index) =>
+        createLine(index === normalY ? "ERROR" : "", {
+          wrapped: index > 0 && index < normalY,
+        }),
+      );
+      const rows = 501;
+      const viewportY = giantRows - 500;
+      const harness = createHarness({ lines, baseY: normalY, viewportY, rows });
+      const highlighter = new KeywordHighlighter(harness.terminal);
+      let now = 0;
+      const performanceNow = vi.spyOn(performance, "now").mockImplementation(() => now);
+
+      highlighter.setRules([rule()], true, highlightAcrossWrappedLines);
+      flushWriteRefresh();
+
+      const maxBoundedReads =
+        XTERM_PERFORMANCE_CONFIG.highlighting.maxLogicalLineRows * 2 + 100;
+      expect(harness.getLineSpy.mock.calls.length).toBeLessThan(maxBoundedReads);
+      expect(lines[giantRows - 1].translateSpy).not.toHaveBeenCalled();
+      expect(harness.decorations.filter((entry) => entry.marker.line === normalY)).toHaveLength(1);
+      expect(rafCallbacks).toHaveLength(0);
+
+      const internals = highlighter as unknown as {
+        suppressedLineCache: Map<number, true>;
+      };
+      expect(internals.suppressedLineCache.size).toBeGreaterThan(0);
+      const firstRefreshReads = harness.getLineSpy.mock.calls.length;
+
+      harness.active.viewportY--;
+      harness.render();
+      flushScrollRefresh();
+
+      const scrollRefreshReads = harness.getLineSpy.mock.calls.length - firstRefreshReads;
+      expect(scrollRefreshReads).toBeLessThan(rows + 50);
+      const readsBeforeWrite = harness.getLineSpy.mock.calls.length;
+
+      harness.getLineSpy.mockImplementation((lineY: number) => {
+        now++;
+        return lines[lineY];
+      });
+      now = 100;
+      harness.write();
+      flushWriteRefresh();
+
+      const secondRefreshReads = harness.getLineSpy.mock.calls.length - readsBeforeWrite;
+      expect(secondRefreshReads).toBeLessThan(rows + 50);
+      expect(lines[giantRows - 1].translateSpy).not.toHaveBeenCalled();
+
+      harness.resize();
+      expect(internals.suppressedLineCache).toHaveLength(0);
+      performanceNow.mockRestore();
+      highlighter.dispose();
+    },
+  );
+
+  it.each([false, true])(
+    "keeps a logical-line boundary timeout out of the persistent suppression cache (%s)",
+    (highlightAcrossWrappedLines) => {
+      const lines = [
+        createLine("ERROR"),
+        createLine("ERROR", { wrapped: true }),
+        createLine("ERROR"),
+      ];
+      const harness = createHarness({ lines, baseY: 2, viewportY: 0, rows: 3 });
+      let now = 0;
+      let lineReads = 0;
+      harness.getLineSpy.mockImplementation((lineY: number) => {
+        lineReads++;
+        if (lineReads === 2) now = 4;
+        return lines[lineY];
+      });
+      const performanceNow = vi.spyOn(performance, "now").mockImplementation(() => now);
+      const highlighter = new KeywordHighlighter(harness.terminal);
+
+      highlighter.setRules([rule()], true, highlightAcrossWrappedLines);
+      flushWriteRefresh();
+
+      const internals = highlighter as unknown as {
+        suppressedLineCache: Map<number, true>;
+      };
+      expect(internals.suppressedLineCache).toHaveLength(0);
+      expect(lines[0].translateSpy).not.toHaveBeenCalled();
+      expect(lines[1].translateSpy).not.toHaveBeenCalled();
+      expect(rafCallbacks).toHaveLength(1);
+
+      const [[rafId, continuation]] = [...rafCallbacks.entries()];
+      rafCallbacks.delete(rafId);
+      now = 100;
+      continuation(100);
+
+      expect(lines[0].translateSpy).not.toHaveBeenCalled();
+      expect(lines[1].translateSpy).not.toHaveBeenCalled();
+      expect(harness.decorations.filter((entry) => entry.marker.line === 2)).toHaveLength(1);
+      expect(rafCallbacks).toHaveLength(0);
+
+      now = 200;
+      harness.write();
+      flushWriteRefresh();
+
+      expect(lines[0].translateSpy).toHaveBeenCalledTimes(1);
+      expect(lines[1].translateSpy).toHaveBeenCalledTimes(1);
+      expect(internals.suppressedLineCache).toHaveLength(0);
+      performanceNow.mockRestore();
+      highlighter.dispose();
+    },
+  );
+
+  it("only persists row-limit suppression for immutable scrollback rows", () => {
+    const logicalRows = 600;
+    const lines = Array.from({ length: logicalRows + 1 }, (_, index) =>
+      createLine(index === logicalRows ? "ERROR" : "", {
+        wrapped: index > 0 && index < logicalRows,
+      }),
+    );
+    const harness = createHarness({ lines, baseY: 550, viewportY: 540, rows: 30 });
+    const highlighter = new KeywordHighlighter(harness.terminal);
+
+    highlighter.setRules([rule()], true);
+    flushWriteRefresh();
+
+    const internals = highlighter as unknown as {
+      suppressedLineCache: Map<number, true>;
+    };
+    expect(internals.suppressedLineCache.size).toBeGreaterThan(0);
+    expect([...internals.suppressedLineCache.keys()].every((lineY) => lineY < harness.active.baseY)).toBe(
+      true,
+    );
+    highlighter.dispose();
+  });
+
+  it("invalidates deterministic suppression after scrollback trimming", () => {
+    const denseText = "ERROR ".repeat(XTERM_PERFORMANCE_CONFIG.highlighting.maxMatchesPerLine);
+    const wrappedRows =
+      Math.floor(
+        XTERM_PERFORMANCE_CONFIG.highlighting.maxDecorationsPerLogicalLine /
+          XTERM_PERFORMANCE_CONFIG.highlighting.maxMatchesPerLine,
+      ) + 1;
+    const startY = 100;
+    const lines = Array.from({ length: 240 }, () => createLine(""));
+    for (let index = 0; index < wrappedRows; index++) {
+      lines[startY + index] = createLine(denseText, { wrapped: index > 0 });
+    }
+    const harness = createHarness({
+      lines,
+      baseY: 220,
+      viewportY: startY,
+      rows: wrappedRows,
+      cols: denseText.length,
+    });
+    const highlighter = new KeywordHighlighter(harness.terminal);
+
+    highlighter.setRules([rule()], true);
+    flushWriteRefresh();
+
+    const internals = highlighter as unknown as {
+      suppressedLineCache: Map<number, true>;
+    };
+    expect(internals.suppressedLineCache.size).toBe(wrappedRows);
+
+    for (let index = 0; index < wrappedRows; index++) {
+      lines[startY + index] = createLine("");
+    }
+    harness.markers[0].dispose();
+    harness.active.viewportY++;
+    harness.render();
+    flushScrollRefresh();
+
+    expect(internals.suppressedLineCache).toHaveLength(0);
+    highlighter.dispose();
+  });
 
   it("delays resume and cancels it when suspension returns", () => {
     const lines = Array.from({ length: 80 }, (_, index) =>

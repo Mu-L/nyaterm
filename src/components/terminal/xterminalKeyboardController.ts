@@ -20,6 +20,7 @@ import {
   type InputSelectionRange,
   isShiftInsertPasteEvent,
 } from "./terminalInputSelection";
+import type { XTerminalImeTracker } from "./xterminalIme";
 import {
   getCtrlPrintableCsiuInput,
   isLocalBackspaceEvent,
@@ -33,6 +34,7 @@ interface MutableRef<T> {
 
 interface InstallXTerminalKeyboardControllerParams {
   terminal: Terminal;
+  imeTracker: Pick<XTerminalImeTracker, "routeKeyboardEvent">;
   terminalAppSettingsRef: MutableRef<TerminalAppSettings>;
   sessionTypeRef: MutableRef<SessionType>;
   inputStateRef: MutableRef<TerminalInputState>;
@@ -68,6 +70,7 @@ interface InstallXTerminalKeyboardControllerParams {
 
 export function installXTerminalKeyboardController({
   terminal,
+  imeTracker,
   terminalAppSettingsRef,
   sessionTypeRef,
   inputStateRef,
@@ -196,6 +199,15 @@ export function installXTerminalKeyboardController({
     }
 
     if (isLocalBackspaceEvent(e, sessionTypeRef.current)) {
+      const imeRoute = imeTracker.routeKeyboardEvent(e);
+      if (imeRoute === "native-ime") {
+        // Stop xterm without preventDefault so the native IME can edit its preedit.
+        return false;
+      }
+      if (imeRoute === "xterm") {
+        return true;
+      }
+
       e.preventDefault();
       if (isCredentialPromptInputMode()) {
         sendRawInput(BACKSPACE_INPUT, null);

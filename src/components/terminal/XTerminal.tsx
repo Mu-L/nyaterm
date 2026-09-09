@@ -113,6 +113,7 @@ import {
   quotePosixPath,
 } from "./xterminalClipboard";
 import { createXTerminalHibernationController } from "./xterminalHibernationController";
+import { createXTerminalImeTracker } from "./xterminalIme";
 import { installXTerminalKeyboardController } from "./xterminalKeyboardController";
 import { createXTerminalOutputController } from "./xterminalOutputController";
 import { installXTerminalSelectionController } from "./xterminalSelectionController";
@@ -861,6 +862,7 @@ export default function XTerminal({
     terminal.loadAddon(unicodeGraphemesAddon);
     installTerminalImageAddon(terminal, { sessionId, sessionType });
     terminal.open(containerRef.current);
+    const imeTracker = createXTerminalImeTracker(terminal.textarea);
 
     const coreService = (terminal as Terminal & XTermInternalTrimSource)._core
       ?.coreService;
@@ -1530,6 +1532,7 @@ export default function XTerminal({
 
     installXTerminalKeyboardController({
       terminal,
+      imeTracker,
       terminalAppSettingsRef,
       sessionTypeRef,
       inputStateRef,
@@ -2400,6 +2403,7 @@ export default function XTerminal({
           });
       }
       setTerminalReady(false);
+      imeTracker.dispose();
       selectionController.dispose();
       if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
       inputStateRef.current = createTerminalInputState();

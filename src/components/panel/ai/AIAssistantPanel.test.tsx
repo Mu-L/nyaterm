@@ -195,6 +195,75 @@ describe("AIAssistantPanel history scope ownership", () => {
       expect.anything(),
     );
   });
+
+  it("keeps history locked while its AI stream is still running after the terminal closes", async () => {
+    const owningPane = terminalPane("stream-owner");
+    const currentPane = terminalPane("current-session", {
+      id: "current-pane",
+      connectionId: "current-connection",
+      name: "Current terminal",
+    });
+    const historySession = aiSession("stream-ai-session", owningPane.sessionId);
+
+    appState.appSettings.ai = {
+      ...DEFAULT_AI_SETTINGS,
+      enabled: true,
+      default_model_id: "test-model",
+      models: [
+        {
+          id: "test-model",
+          name: "Test model",
+          provider_kind: "openai",
+          enabled: true,
+          source: "manual",
+        },
+      ],
+    };
+
+    invokeMock.mockImplementation((command: string) => {
+      switch (command) {
+        case "get_ai_sessions":
+          return Promise.resolve([historySession]);
+        case "start_ai_chat_stream":
+          return Promise.resolve({ sessionId: historySession.id });
+        case "append_ai_audit":
+          return Promise.resolve(null);
+        default:
+          return Promise.reject(new Error(`Unexpected command: ${command}`));
+      }
+    });
+
+    appState.tabs = [tabWithPane(owningPane)];
+    const intent = {
+      id: "stream-intent",
+      action: "generate_command" as const,
+      userInput: "keep streaming",
+    };
+    const view = render(
+      <AIAssistantPanel activePane={owningPane} intent={intent} />,
+    );
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith(
+        "start_ai_chat_stream",
+        expect.objectContaining({
+          request: expect.objectContaining({ sessionId: null }),
+        }),
+      );
+    });
+
+    appState.tabs = [tabWithPane(currentPane)];
+    view.rerender(<AIAssistantPanel activePane={currentPane} intent={intent} />);
+    openHistory(view.container);
+
+    const lockedSessionButton = await historySessionButton(historySession.title);
+    expect(lockedSessionButton.disabled).toBe(true);
+    expect(screen.getByText("ai.historyInUse")).not.toBeNull();
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      "rebind_ai_session",
+      expect.anything(),
+    );
+  });
 });
 
 function openHistory(container: HTMLElement) {

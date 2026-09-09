@@ -1208,11 +1208,12 @@ function AIAssistantPanel({ activePane, activeConnection, intent }: AIAssistantP
 
   const isSessionUsedByAnotherScope = useCallback(
     (sessionId: string) =>
+      !!streamRuntimeBySession[sessionId] ||
       Object.entries(activeSessionIdByScope).some(
         ([key, value]) =>
           key !== scopeKey && value === sessionId && openTerminalScopeKeys.has(key),
       ),
-    [activeSessionIdByScope, openTerminalScopeKeys, scopeKey],
+    [activeSessionIdByScope, openTerminalScopeKeys, scopeKey, streamRuntimeBySession],
   );
 
   const openHistorySession = useCallback(

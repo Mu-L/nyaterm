@@ -1756,6 +1756,7 @@ export interface InteractionSettings {
   duplicate_session_command_delay_ms: number;
   word_separators: string;
   alt_as_meta: boolean;
+  mouse_events_require_alt: boolean;
   ime_compatibility: boolean;
   default_encoding: string;
   tab_double_click_action: import("@/lib/interactionSettings").TabMouseAction;

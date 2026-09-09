@@ -200,6 +200,25 @@ export function installXTerminalKeyboardController({
       return false;
     }
 
+    // Plain Cmd+C: when the application has enabled keyboard reporting modes
+    // (e.g. kitty keyboard in vim), xterm may consume the key event and the
+    // browser's native copy event never fires, so copy the live selection
+    // explicitly. Without a selection, fall through to normal processing.
+    if (
+      e.key.toLowerCase() === "c" &&
+      e.metaKey &&
+      !e.ctrlKey &&
+      !e.altKey &&
+      !e.shiftKey
+    ) {
+      const sel = terminal.getSelection();
+      if (sel) {
+        e.preventDefault();
+        writeClipboardText(sel).catch(() => {});
+        return false;
+      }
+    }
+
     if (
       e.key === "Tab" &&
       !e.ctrlKey &&

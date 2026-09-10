@@ -69,8 +69,8 @@ impl SftpBackend {
         config: SftpClientConfig,
     ) -> AppResult<ManagedSftpSession> {
         for attempt in 0..=SFTP_CHANNEL_OPEN_RETRY_DELAYS.len() {
+            let permit = ssh_handle.acquire_sftp_channel_permit().await?;
             let setup_result = tokio::time::timeout(SFTP_SESSION_SETUP_TIMEOUT, async {
-                let permit = ssh_handle.acquire_sftp_channel_permit().await?;
                 let channel_result = {
                     let handle_mtx = ssh_handle.target_handle();
                     let handle = handle_mtx.lock().await;

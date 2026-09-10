@@ -679,6 +679,7 @@ function FileExplorerPane({
   activeSessionType,
   activeConnectionId,
   activeSessionName,
+  terminalInputEnabled = true,
   headerMeta,
   headerActions,
   peerEndpoint,
@@ -1951,7 +1952,7 @@ function FileExplorerPane({
 
   const sendTextToTerminal = useCallback(
     (text: string) => {
-      if (!activeSessionId || !text) return;
+      if (!activeSessionId || !text || !terminalInputEnabled) return;
       const peerSessionIds = getSessionInputPeerIds(
         activeSessionId,
         syncGroups,
@@ -1966,7 +1967,7 @@ function FileExplorerPane({
       sendInput.catch(() => {});
       emit(`focus-terminal-${activeSessionId}`).catch(() => {});
     },
-    [activeSessionId, broadcastToAll, syncGroups, tabs],
+    [activeSessionId, broadcastToAll, syncGroups, tabs, terminalInputEnabled],
   );
 
   const handleSendCurrentPathToTerminal = () => {
@@ -3288,7 +3289,9 @@ function FileExplorerPane({
                           onDelete={handleDeleteFromContextMenu}
                           onAddToFavorites={handleAddEntryToFavorites}
                           onCopyPath={handleCopyPath}
-                          onSendToTerminal={handleSendToTerminal}
+                          onSendToTerminal={
+                            terminalInputEnabled ? handleSendToTerminal : undefined
+                          }
                           onProperties={(entry) => {
                             if (activeSessionId) {
                               setPropertiesDialogData({
@@ -3379,10 +3382,12 @@ function FileExplorerPane({
               <MdContentCopy className="mr-2 h-4 w-4" />
               {t("fileExplorer.copyDirPath")}
             </ContextMenuItem>
-            <ContextMenuItem onClick={handleSendCurrentPathToTerminal}>
-              <LuClipboardPaste className="mr-2 h-4 w-4" />
-              {t("fileExplorer.sendDirPathToTerminal")}
-            </ContextMenuItem>
+            {terminalInputEnabled ? (
+              <ContextMenuItem onClick={handleSendCurrentPathToTerminal}>
+                <LuClipboardPaste className="mr-2 h-4 w-4" />
+                {t("fileExplorer.sendDirPathToTerminal")}
+              </ContextMenuItem>
+            ) : null}
             <ContextMenuSeparator />
             <ContextMenuItem onClick={handleCurrentDirProperties}>
               <MdInfo className="mr-2 h-4 w-4" />
@@ -3419,26 +3424,28 @@ function FileExplorerPane({
             )}
           </div>
           <div className="flex items-center gap-0.5">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 rounded-md text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed"
-                    onClick={handleSyncCwd}
-                    disabled={!cwdTrackingActive}
-                  >
-                    <LuFolderSync className="h-[0.875rem] w-[0.875rem]" />
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="top">
-                {cwdTrackingActive
-                  ? t("fileExplorer.syncTerminalPath")
-                  : t("fileExplorer.cwdTrackingUnavailable")}
-              </TooltipContent>
-            </Tooltip>
+            {terminalInputEnabled ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 rounded-md text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed"
+                      onClick={handleSyncCwd}
+                      disabled={!cwdTrackingActive}
+                    >
+                      <LuFolderSync className="h-[0.875rem] w-[0.875rem]" />
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  {cwdTrackingActive
+                    ? t("fileExplorer.syncTerminalPath")
+                    : t("fileExplorer.cwdTrackingUnavailable")}
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
             <Tooltip>
               <TooltipTrigger asChild>
                 <span className="inline-flex">

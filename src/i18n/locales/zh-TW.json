@@ -1705,6 +1705,7 @@
     "notSet": "未設定",
     "openAllConnections": "開啟全部連線",
     "openAllConnectionsConfirm": "確定要開啟資料夾「{{name}}」中的 {{count}} 個連線嗎？",
+    "openWithSftp": "使用 SFTP 開啟",
     "parity": "校驗位",
     "port": "埠",
     "rename": "重新命名",
@@ -2545,6 +2546,12 @@
     "x11Display": "本機 X11 DISPLAY",
     "x11DisplayDesc": "需要本機已安裝並啟動 X server。Windows 可使用 VcXsrv/Xming，macOS 可使用 XQuartz，Linux 通常使用 Xorg/Xwayland。",
     "x11DisplayPlaceholder": "Windows: localhost:0 / Linux/macOS: :0"
+  },
+  "sftpRuntime": {
+    "disconnected": "SFTP 連線已中斷",
+    "openedWithoutShell": "此連線以 SFTP-only 模式開啟，未建立遠端 Shell 工作階段。",
+    "title": "SFTP",
+    "useFileExplorer": "請使用檔案管理器瀏覽及傳輸檔案。"
   },
   "sshAgentAuth": {
     "endpoint": {

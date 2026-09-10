@@ -87,11 +87,23 @@ export function useTerminalRefreshEffects({
 
   useEffect(() => {
     if (active && visible && terminalReady && fitSchedulerRef.current && terminalRef.current) {
+      const terminal = terminalRef.current;
+      const buffer = terminal.buffer.active;
+      const wasAtBottom = buffer.viewportY === buffer.baseY;
       fitSchedulerRef.current.schedule({
         reason: "active",
         force: true,
         refresh: true,
         focus: true,
+        onComplete: (result) => {
+          if (
+            result.applied &&
+            wasAtBottom &&
+            terminalRef.current === terminal
+          ) {
+            terminal.scrollToBottom();
+          }
+        },
       });
     }
   }, [active, fitSchedulerRef, terminalReady, terminalRef, visible]);

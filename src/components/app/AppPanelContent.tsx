@@ -35,6 +35,7 @@ interface AppPanelContentProps {
   activePane: SessionPane | null;
   activeConnection: SavedConnection | null;
   activeSessionId: string | null;
+  shellInputEnabled: boolean;
   activeStatsSessionId: string | null;
   remoteStatsEnabled: boolean;
   remoteStats: RemoteStatsState;
@@ -55,6 +56,7 @@ interface AppPanelContentProps {
     target?: NewSessionTarget,
   ) => void;
   onConnectConnection: (connection: SavedConnection) => Promise<void> | void;
+  onOpenSftpConnection: (connection: SavedConnection) => Promise<void> | void;
   onSessionClick: (sessionId: string) => void;
   onSessionReconnect: (sessionId: string) => Promise<void> | void;
   onSessionDisconnect: (sessionId: string) => Promise<void> | void;
@@ -72,6 +74,7 @@ export default function AppPanelContent({
   activePane,
   activeConnection,
   activeSessionId,
+  shellInputEnabled,
   activeStatsSessionId,
   remoteStatsEnabled,
   remoteStats,
@@ -88,6 +91,7 @@ export default function AppPanelContent({
   onNewConnection,
   onEditConnection,
   onConnectConnection,
+  onOpenSftpConnection,
   onSessionClick,
   onSessionReconnect,
   onSessionDisconnect,
@@ -123,6 +127,7 @@ export default function AppPanelContent({
                 activeSessionType={filePanelPane?.type ?? null}
                 activeConnectionId={filePanelPane?.connectionId ?? null}
                 activeSessionName={liveTerminalPane?.name ?? null}
+                terminalInputEnabled={shellInputEnabled}
               />
             </div>
             <ResizeHandle direction="vertical" onResize={onTransferResize} />
@@ -149,6 +154,7 @@ export default function AppPanelContent({
             onNewConnection={onNewConnection}
             onEditConnection={onEditConnection}
             onConnectConnection={onConnectConnection}
+            onOpenSftpConnection={onOpenSftpConnection}
           />
         );
       case "activeSessions":
@@ -173,7 +179,7 @@ export default function AppPanelContent({
       case "commandHistory":
         return (
           <CommandHistory
-            activeSessionId={activeSessionId}
+            activeSessionId={shellInputEnabled ? activeSessionId : null}
             onCommandSend={onCommandSend}
           />
         );
@@ -221,7 +227,7 @@ export default function AppPanelContent({
       {aiEverMounted.current && (
         <div className={isAiActive ? "h-full" : "hidden"}>
           <AIAssistantPanel
-            activePane={liveTerminalPane}
+            activePane={shellInputEnabled ? liveTerminalPane : null}
             activeConnection={activeConnection}
             intent={aiIntent}
           />

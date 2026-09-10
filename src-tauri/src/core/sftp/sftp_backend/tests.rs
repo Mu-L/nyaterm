@@ -173,6 +173,49 @@ fn sftp_channel_open_retry_rejects_policy_and_type_failures() {
 }
 
 #[test]
+fn sftp_directory_list_retry_accepts_transient_sftp_errors_on_first_failure() {
+    for error in [
+        sftp_status_error(StatusCode::NoConnection),
+        sftp_status_error(StatusCode::ConnectionLost),
+        SftpError::IO("connection reset".to_string()),
+        SftpError::Timeout,
+        SftpError::UnexpectedBehavior("session closed".to_string()),
+    ] {
+        let error = AppError::Sftp(error);
+        assert!(should_retry_sftp_directory_list(&error, 0));
+        assert!(!should_retry_sftp_directory_list(&error, 1));
+    }
+}
+
+#[test]
+fn sftp_directory_list_retry_rejects_remote_and_protocol_failures() {
+    for status_code in [
+        StatusCode::NoSuchFile,
+        StatusCode::PermissionDenied,
+        StatusCode::Failure,
+        StatusCode::BadMessage,
+        StatusCode::OpUnsupported,
+    ] {
+        assert!(!should_retry_sftp_directory_list(
+            &AppError::Sftp(sftp_status_error(status_code)),
+            0,
+        ));
+    }
+
+    for error in [
+        SftpError::Limited("limit".to_string()),
+        SftpError::UnexpectedPacket,
+    ] {
+        assert!(!should_retry_sftp_directory_list(&AppError::Sftp(error), 0,));
+    }
+
+    assert!(!should_retry_sftp_directory_list(
+        &AppError::Channel("SFTP session setup failed".to_string()),
+        0,
+    ));
+}
+
+#[test]
 fn write_text_permission_restore_preserves_posix_mode_bits() {
     assert_eq!(
         permissions_to_preserve_after_write(Some(0o100644)),

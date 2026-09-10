@@ -32,8 +32,6 @@ impl RemoteFs for SftpBackend {
     }
 
     async fn list_dir_ref(&self, path: &RemotePathRef) -> AppResult<Vec<FileEntry>> {
-        let sftp = self.open_sftp().await?;
-
         let path_bytes = normalize_remote_dir_path_bytes(&self.remote_path_bytes(path));
         if path.raw_path().is_some() {
             self.path_cache
@@ -41,7 +39,31 @@ impl RemoteFs for SftpBackend {
                 .await
                 .insert(path.display_path().to_string(), path_bytes.clone());
         }
-        let dir = sftp.read_dir_bytes(path_bytes.clone()).await?;
+        let mut retries_used = 0;
+        let (sftp, dir) = loop {
+            let sftp = match self.open_sftp().await {
+                Ok(sftp) => sftp,
+                Err(error) if should_retry_sftp_directory_list(&error, retries_used) => {
+                    retries_used += 1;
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
+
+            match sftp.read_dir_bytes(path_bytes.clone()).await {
+                Ok(dir) => break (sftp, dir),
+                Err(error) => {
+                    let error = AppError::Sftp(error);
+                    let should_retry = should_retry_sftp_directory_list(&error, retries_used);
+                    let _ = sftp.close().await;
+                    if should_retry {
+                        retries_used += 1;
+                        continue;
+                    }
+                    return Err(error);
+                }
+            }
+        };
 
         let mut pending = Vec::new();
         let mut uid_set = HashSet::new();

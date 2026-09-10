@@ -387,6 +387,169 @@ fn directory_stall_watchdog_fires_only_while_running_without_progress() {
     ));
 }
 
+fn sftp_status_error(status_code: StatusCode) -> SftpError {
+    SftpError::Status(russh_sftp::protocol::Status {
+        id: 1,
+        status_code,
+        error_message: status_code.to_string(),
+        language_tag: "en-US".to_string(),
+    })
+}
+
+#[test]
+fn upload_directory_sftp_error_classification_keeps_only_file_statuses_recoverable() {
+    for status_code in [
+        StatusCode::NoSuchFile,
+        StatusCode::PermissionDenied,
+        StatusCode::Failure,
+    ] {
+        assert!(is_recoverable_upload_sftp_error(&sftp_status_error(
+            status_code
+        )));
+    }
+
+    for status_code in [
+        StatusCode::Eof,
+        StatusCode::BadMessage,
+        StatusCode::NoConnection,
+        StatusCode::ConnectionLost,
+        StatusCode::OpUnsupported,
+    ] {
+        assert!(!is_recoverable_upload_sftp_error(&sftp_status_error(
+            status_code
+        )));
+    }
+
+    for error in [
+        SftpError::IO("connection reset".to_string()),
+        SftpError::Timeout,
+        SftpError::Limited("limit".to_string()),
+        SftpError::UnexpectedPacket,
+        SftpError::UnexpectedBehavior("session closed".to_string()),
+    ] {
+        assert!(!is_recoverable_upload_sftp_error(&error));
+    }
+}
+
+#[test]
+fn upload_directory_io_error_uses_preserved_sftp_source_classification() {
+    let recoverable = classify_upload_sftp_io_error(
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            sftp_status_error(StatusCode::PermissionDenied),
+        ),
+        "write denied".to_string(),
+    );
+    assert!(matches!(
+        recoverable,
+        UploadDirectoryFileError::Recoverable(_)
+    ));
+
+    let fatal = classify_upload_sftp_io_error(
+        std::io::Error::new(std::io::ErrorKind::TimedOut, SftpError::Timeout),
+        "write timed out".to_string(),
+    );
+    assert!(matches!(fatal, UploadDirectoryFileError::Fatal(_)));
+
+    let untyped_io = classify_upload_sftp_io_error(
+        std::io::Error::new(std::io::ErrorKind::BrokenPipe, "session closed"),
+        "write failed".to_string(),
+    );
+    assert!(matches!(untyped_io, UploadDirectoryFileError::Fatal(_)));
+}
+
+#[test]
+fn recoverable_upload_directory_file_failure_is_recorded_and_counted_as_processed() {
+    let failures = StdMutex::new(UploadDirectoryFailures::default());
+    let completed_count = AtomicU64::new(0);
+
+    let first_completed = finish_upload_directory_file(
+        Err(UploadDirectoryFileError::Recoverable(AppError::Channel(
+            "permission denied".to_string(),
+        ))),
+        "/remote/locked.txt".to_string(),
+        &failures,
+        &completed_count,
+    )
+    .expect("ordinary file failures should be skipped");
+    let second_completed = finish_upload_directory_file(
+        Ok(12),
+        "/remote/ok.txt".to_string(),
+        &failures,
+        &completed_count,
+    )
+    .expect("later files should still be processed");
+
+    assert_eq!(first_completed, 1);
+    assert_eq!(second_completed, 2);
+    assert_eq!(completed_count.load(Ordering::SeqCst), 2);
+    let failures = failures.lock().unwrap();
+    assert_eq!(failures.count, 1);
+    assert_eq!(
+        failures.first,
+        Some(DirectoryTransferFailure {
+            path: "/remote/locked.txt".to_string(),
+            error: "permission denied".to_string(),
+        })
+    );
+
+    let previous = DirectoryProgressSnapshot {
+        bytes: 0,
+        completed: 1,
+    };
+    let current = DirectoryProgressSnapshot {
+        bytes: 0,
+        completed: 2,
+    };
+    assert!(!directory_transfer_stalled(
+        TransferControlState::Running,
+        previous,
+        current,
+        SFTP_DIRECTORY_STALL_TIMEOUT,
+        3,
+    ));
+}
+
+#[test]
+fn upload_directory_session_failure_remains_fatal() {
+    let failures = StdMutex::new(UploadDirectoryFailures::default());
+    let completed_count = AtomicU64::new(0);
+
+    let error = finish_upload_directory_file(
+        Err(UploadDirectoryFileError::Fatal(AppError::Channel(
+            "SFTP session closed".to_string(),
+        ))),
+        "/remote/file.txt".to_string(),
+        &failures,
+        &completed_count,
+    )
+    .expect_err("session failures must abort the directory transfer");
+
+    assert!(error.to_string().contains("SFTP session closed"));
+    assert_eq!(completed_count.load(Ordering::SeqCst), 0);
+    assert_eq!(failures.lock().unwrap().count, 0);
+}
+
+#[test]
+fn upload_directory_file_cancellation_remains_fatal() {
+    let failures = StdMutex::new(UploadDirectoryFailures::default());
+    let completed_count = AtomicU64::new(0);
+
+    let error = finish_upload_directory_file(
+        Err(UploadDirectoryFileError::Fatal(AppError::Cancelled(
+            "cancelled".to_string(),
+        ))),
+        "/remote/file.txt".to_string(),
+        &failures,
+        &completed_count,
+    )
+    .expect_err("cancellation must abort the directory transfer");
+
+    assert!(matches!(error, AppError::Cancelled(_)));
+    assert_eq!(completed_count.load(Ordering::SeqCst), 0);
+    assert_eq!(failures.lock().unwrap().count, 0);
+}
+
 #[tokio::test]
 async fn directory_worker_error_aborts_remaining_workers() {
     let mut join_set = tokio::task::JoinSet::new();

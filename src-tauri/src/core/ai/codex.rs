@@ -180,7 +180,7 @@ impl CodexAppServerManager {
         }
 
         *self.state.write().await = CodexRuntimeState::Starting;
-        let executable = codex_executable(path.as_deref());
+        let executable = resolve_codex_executable(path).await?;
         let mut command = Command::new(&executable);
         hide_window(&mut command);
         let mut child = command
@@ -1017,6 +1017,19 @@ fn codex_executable(path: Option<&str>) -> String {
         .to_string()
 }
 
+async fn resolve_codex_executable(path: Option<String>) -> AppResult<String> {
+    let status = CodexAppServerManager::detect_cli(path).await;
+    if !status.installed {
+        return Err(AppError::Config(status.error.unwrap_or_else(|| {
+            "Codex CLI was not detected in PATH or common install locations".to_string()
+        })));
+    }
+
+    status
+        .path
+        .ok_or_else(|| AppError::Config("Codex CLI detection returned no executable path".into()))
+}
+
 async fn discover_codex_candidates(path: Option<&str>) -> Vec<CodexCliCandidate> {
     let mut candidates = Vec::new();
     let mut seen = HashSet::new();
@@ -1084,6 +1097,12 @@ fn add_common_codex_candidates(
             let npm = Path::new(&appdata).join("npm");
             for name in ["codex.cmd", "codex.exe", "codex"] {
                 add_existing_codex_candidate(candidates, seen, npm.join(name), "common");
+            }
+        }
+        if let Ok(nvm_symlink) = env::var("NVM_SYMLINK") {
+            let nodejs = Path::new(&nvm_symlink);
+            for name in ["codex.cmd", "codex.exe", "codex"] {
+                add_existing_codex_candidate(candidates, seen, nodejs.join(name), "common");
             }
         }
         if let Ok(local_appdata) = env::var("LOCALAPPDATA") {
@@ -1515,6 +1534,20 @@ pub async fn manager_from_app(app: &AppHandle) -> AppResult<Arc<CodexAppServerMa
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn resolves_windows_cmd_launcher_before_starting_app_server() {
+        let path = std::env::temp_dir().join(format!("nyaterm-codex-{}.cmd", uuid()));
+        std::fs::write(&path, "@echo off\r\necho codex-test\r\n").unwrap();
+
+        let resolved = resolve_codex_executable(Some(path.to_string_lossy().into_owned()))
+            .await
+            .unwrap();
+
+        assert_eq!(resolved, path.to_string_lossy());
+        let _ = std::fs::remove_file(path);
+    }
 
     #[test]
     fn sanitizes_codex_auth_material_from_logs() {

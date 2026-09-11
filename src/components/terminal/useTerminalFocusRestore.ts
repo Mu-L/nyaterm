@@ -37,10 +37,8 @@ export function useTerminalFocusRestore({
   // biome-ignore lint/correctness/useExhaustiveDependencies: refs are intentionally read once per ready/reveal transition.
   useEffect(() => {
     if (!terminalReady || restoringSnapshot || hibernated) return;
-    const hadFocusBeforeRebuild = pendingFocusRestoreRef.current;
     pendingFocusRestoreRef.current = false;
-    if (!visibleRef.current) return;
-    if (!hadFocusBeforeRebuild && !activeRef.current) return;
+    if (!visibleRef.current || !activeRef.current) return;
     const activeElement = document.activeElement;
     // Only reclaim focus when nothing else has taken it while the terminal was
     // being rebuilt (e.g. the user clicked another pane or an input).

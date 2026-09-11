@@ -144,6 +144,26 @@ describe("useTerminalFocusRestore", () => {
     input.remove();
   });
 
+  it("does not restore focus if the pane becomes inactive while rebuilding", () => {
+    const harness = createHarness({
+      terminalReady: false,
+      restoringSnapshot: true,
+      pendingFocusRestore: true,
+    });
+
+    // The old renderer owned focus, but the user switched to another pane
+    // before this rebuild finished.
+    harness.activeRef.current = false;
+    harness.rerender({
+      terminalReady: true,
+      restoringSnapshot: false,
+      hibernated: false,
+    });
+
+    expect(harness.focus).not.toHaveBeenCalled();
+    expect(harness.pendingFocusRestoreRef.current).toBe(false);
+  });
+
   it("skips focus for inactive or hidden panes and clears the flag", () => {
     const inactive = createHarness({
       terminalReady: true,

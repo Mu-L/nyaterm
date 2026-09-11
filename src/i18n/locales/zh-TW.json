@@ -2832,6 +2832,7 @@
     "searchOnline": "線上搜尋",
     "searchRegex": "正規表示式",
     "searchWholeWord": "整詞符合",
+    "searchWrapAround": "循環搜尋",
     "selectAll": "全選",
     "translate": "翻譯"
   },

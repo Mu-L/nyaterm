@@ -2838,6 +2838,7 @@
     "searchOnline": "Search Web",
     "searchRegex": "Regular expression",
     "searchWholeWord": "Whole word",
+    "searchWrapAround": "Wrap around",
     "selectAll": "Select All",
     "translate": "Translate"
   },

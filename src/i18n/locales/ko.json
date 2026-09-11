@@ -2829,6 +2829,7 @@
     "searchOnline": "웹 검색",
     "searchRegex": "정규식",
     "searchWholeWord": "단어 단위",
+    "searchWrapAround": "순환 검색",
     "selectAll": "모두 선택",
     "translate": "번역"
   },

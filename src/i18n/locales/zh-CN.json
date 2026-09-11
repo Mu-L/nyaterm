@@ -2837,6 +2837,7 @@
     "searchOnline": "在线搜索",
     "searchRegex": "正则表达式",
     "searchWholeWord": "整词匹配",
+    "searchWrapAround": "循环搜索",
     "selectAll": "全选",
     "translate": "翻译"
   },

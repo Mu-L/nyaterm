@@ -42,7 +42,7 @@ import {
   isWindowTransparencyEnabled,
   loadBackgroundImageDataUrl,
 } from "@/lib/backgroundImage";
-import { isMacOS } from "@/lib/platform";
+import { isMacOS, isWindows } from "@/lib/platform";
 import type { SendCommandPanelDraft } from "@/lib/sendCommandPanelEvents";
 import type { UpdateInfo } from "@/lib/updater";
 import { bounceTopModalWindow } from "@/lib/windowManager";
@@ -309,6 +309,7 @@ export default function AppLayout({
       data-window-transparency={windowTransparencyEnabled ? "true" : "false"}
       data-window-transparency-blur={
         windowTransparencyEnabled &&
+        isWindows &&
         effectiveAppearance.window_transparency_blur
           ? "true"
           : "false"

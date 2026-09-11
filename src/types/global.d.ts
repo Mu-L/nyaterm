@@ -1163,7 +1163,7 @@ export interface GeneralSettings {
 
 export type BackgroundImageFit = "cover" | "contain" | "stretch" | "tile";
 
-/** Internal native transparency marker. Windows 11 only; other platforms no-op. */
+/** Internal native transparency marker. Supported on Windows and macOS; other platforms no-op. */
 export type WindowTransparency = "none" | "transparent";
 
 export interface TerminalThemeColors {

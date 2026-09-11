@@ -854,6 +854,7 @@ async fn run_codex_stream_inner(
                     default_id,
                     request.permission_mode.clone(),
                     owner,
+                    codex_terminal_presentation_max_lines(&settings),
                 )
                 .await
             {
@@ -1269,6 +1270,10 @@ fn resolve_codex_model_name(settings: &AiSettings, request: &AiChatRequest) -> O
         .map(ToOwned::to_owned)
 }
 
+fn codex_terminal_presentation_max_lines(settings: &AiSettings) -> Option<u16> {
+    (!settings.agent_background_execution_enabled).then_some(settings.terminal_output_lines)
+}
+
 #[cfg(test)]
 fn codex_thread_start_params(model: Option<&str>, ephemeral: bool) -> Value {
     codex_thread_start_params_with_mcp(model, ephemeral, None)
@@ -1564,6 +1569,19 @@ mod tests {
         assert!(sanitized.contains("refresh_token=[redacted]"));
         assert!(sanitized.contains("id_token=[redacted]"));
         assert!(sanitized.contains("code=[redacted]&state=ok"));
+    }
+
+    #[test]
+    fn terminal_presentation_uses_configured_lines_only_for_foreground_execution() {
+        let mut settings = AiSettings {
+            terminal_output_lines: 23,
+            ..AiSettings::default()
+        };
+
+        assert_eq!(codex_terminal_presentation_max_lines(&settings), Some(23));
+
+        settings.agent_background_execution_enabled = true;
+        assert_eq!(codex_terminal_presentation_max_lines(&settings), None);
     }
 
     #[test]

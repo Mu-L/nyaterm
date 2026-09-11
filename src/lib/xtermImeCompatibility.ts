@@ -26,6 +26,15 @@ interface TerminalWithCoreInternals extends Terminal {
 
 const PRINTABLE_ASCII = /^[\x20-\x7E]$/;
 
+function isModifierOnlyKeydown(event: KeyboardEvent): boolean {
+  return (
+    event.key === "Shift" ||
+    event.key === "Control" ||
+    event.key === "Alt" ||
+    event.key === "Meta"
+  );
+}
+
 const noopDisposable: Disposable = {
   dispose() {},
 };
@@ -100,10 +109,12 @@ export function installImeCompatibilityPatch(
   let patchedInputEvent: XtermCoreInternals["_inputEvent"] | undefined;
   let textarea: HTMLTextAreaElement | null | undefined;
   let latestKeydownWas229 = false;
+  let latestKeydownWasModifierOnly = false;
   let keydownInstalled = false;
 
   const handleKeyDown = (event: KeyboardEvent) => {
     latestKeydownWas229 = event.keyCode === 229;
+    latestKeydownWasModifierOnly = isModifierOnlyKeydown(event);
   };
 
   if (isMacOS) {
@@ -119,7 +130,9 @@ export function installImeCompatibilityPatch(
       textarea = core.textarea;
       patchedInputEvent = function patchedInputEvent(this: XtermCoreInternals, ev: InputEvent) {
         const was229 = latestKeydownWas229;
+        const wasModifierOnly = latestKeydownWasModifierOnly;
         latestKeydownWas229 = false;
+        latestKeydownWasModifierOnly = false;
 
         const shouldPatch =
           ev.inputType === "insertText" &&
@@ -127,7 +140,7 @@ export function installImeCompatibilityPatch(
           PRINTABLE_ASCII.test(ev.data) &&
           !ev.isComposing &&
           !isCompositionActive(this._compositionHelper) &&
-          was229 &&
+          (was229 || wasModifierOnly) &&
           this._keyDownSeen === true;
 
         if (!shouldPatch) {

@@ -25,6 +25,8 @@ pub struct SshConfigHost {
     pub port: Option<u16>,
     pub user: Option<String>,
     pub identity_file: Option<String>,
+    #[serde(default)]
+    pub identity_files: Vec<String>,
     pub proxy_jump: Option<String>,
     pub host_key_alias: Option<String>,
 }
@@ -38,6 +40,8 @@ pub struct SshConfigEntry {
     pub port: u16,
     pub user: String,
     pub identity_file: Option<String>,
+    #[serde(default)]
+    pub identity_files: Vec<String>,
     pub proxy_jump: Option<String>,
     pub hops: Vec<SshConfigHop>,
     pub host_key_alias: Option<String>,
@@ -81,7 +85,8 @@ impl SshConfig {
         let host_name = resolved.host_name.unwrap_or_else(|| alias.to_string());
         let port = resolved.port.unwrap_or(22);
         let user = resolved.user.unwrap_or_else(whoami::username);
-        let identity_file = resolved.identity_file;
+        let identity_files = resolved.identity_files;
+        let identity_file = identity_files.first().cloned().or(resolved.identity_file);
         // `ProxyJump none` explicitly disables a value that may have matched
         // earlier (for example from `Host *`). It is not a host named `none`.
         let proxy_jump = resolved
@@ -128,6 +133,7 @@ impl SshConfig {
             port,
             user,
             identity_file,
+            identity_files,
             proxy_jump,
             hops,
             host_key_alias: resolved.host_key_alias,
@@ -160,8 +166,16 @@ impl SshConfig {
                 if resolved.user.is_none() {
                     resolved.user = host.user.clone();
                 }
-                if resolved.identity_file.is_none() {
-                    resolved.identity_file = host.identity_file.clone();
+                let host_identity_files = if host.identity_files.is_empty() {
+                    host.identity_file.iter().cloned().collect::<Vec<_>>()
+                } else {
+                    host.identity_files.clone()
+                };
+                for identity_file in host_identity_files {
+                    if resolved.identity_file.is_none() {
+                        resolved.identity_file = Some(identity_file.clone());
+                    }
+                    resolved.identity_files.push(identity_file);
                 }
                 if resolved.proxy_jump.is_none() {
                     resolved.proxy_jump = host.proxy_jump.clone();
@@ -189,6 +203,7 @@ struct ResolvedOptions {
     port: Option<u16>,
     user: Option<String>,
     identity_file: Option<String>,
+    identity_files: Vec<String>,
     proxy_jump: Option<String>,
     host_key_alias: Option<String>,
 }
@@ -365,10 +380,13 @@ fn parse_string_into(
                 }
             }
             "identityfile" => {
+                let identity_file = expand_tilde(value);
                 if let Some(ref mut block) = state.current {
-                    set_if_missing(&mut block.identity_file, expand_tilde(value));
+                    set_if_missing(&mut block.identity_file, identity_file.clone());
+                    block.identity_files.push(identity_file);
                 } else {
-                    set_if_missing(&mut state.global.identity_file, expand_tilde(value));
+                    set_if_missing(&mut state.global.identity_file, identity_file.clone());
+                    state.global.identity_files.push(identity_file);
                 }
             }
             "proxyjump" => {
@@ -416,6 +434,7 @@ fn has_options(block: &SshConfigHost) -> bool {
         || block.port.is_some()
         || block.user.is_some()
         || block.identity_file.is_some()
+        || !block.identity_files.is_empty()
         || block.proxy_jump.is_some()
         || block.host_key_alias.is_some()
 }
@@ -560,12 +579,17 @@ fn entry_to_saved_connection(
     if let Some(proxy_jump) = entry.proxy_jump.as_deref() {
         details.push(format!("ProxyJump: {proxy_jump}"));
     }
-    if let Some(identity_file) = entry.identity_file.as_deref() {
+    if entry.identity_files.len() > 1 {
+        details.push(format!(
+            "{} IdentityFile entries; using SSH agent",
+            entry.identity_files.len()
+        ));
+    } else if let Some(identity_file) = entry.identity_file.as_deref() {
         if uses_key {
             details.push(format!("IdentityFile: {identity_file}"));
         } else {
             details.push(format!(
-                "IdentityFile unavailable; using SSH agent: {identity_file}"
+                "IdentityFile not importable; using SSH agent: {identity_file}"
             ));
         }
     }
@@ -637,6 +661,21 @@ fn identity_file_path(identity_file: &str) -> Option<PathBuf> {
     Some(PathBuf::from(expand_tilde(value)))
 }
 
+fn missing_private_key_passphrase_error(error: &russh::keys::Error) -> bool {
+    let message = error.to_string().to_lowercase();
+    message.contains("encrypted")
+        || message.contains("passphrase")
+        || message.contains("password")
+        || message.contains("cipher")
+}
+
+fn private_key_content_is_importable(content: &str) -> bool {
+    match russh::keys::decode_secret_key(content, None) {
+        Ok(_) => true,
+        Err(error) => missing_private_key_passphrase_error(&error),
+    }
+}
+
 fn import_identity_key_with_encrypt<F>(
     entry: &SshConfigEntry,
     keys: &mut Vec<SshKey>,
@@ -646,10 +685,15 @@ fn import_identity_key_with_encrypt<F>(
 where
     F: FnOnce(&str) -> AppResult<String>,
 {
-    let Some(identity_file) = entry.identity_file.as_deref() else {
-        return Ok(None);
+    let identity_files = if entry.identity_files.is_empty() {
+        entry.identity_file.iter().collect::<Vec<_>>()
+    } else {
+        entry.identity_files.iter().collect::<Vec<_>>()
     };
-    let Some(path) = identity_file_path(identity_file) else {
+    if identity_files.len() != 1 {
+        return Ok(None);
+    }
+    let Some(path) = identity_file_path(identity_files[0]) else {
         return Ok(None);
     };
     let dedupe_path = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
@@ -661,6 +705,9 @@ where
         Ok(content) if !content.trim().is_empty() => content,
         Ok(_) | Err(_) => return Ok(None),
     };
+    if !private_key_content_is_importable(&content) {
+        return Ok(None);
+    }
 
     if let Some(existing_id) = keys.iter().find_map(|key| {
         crate::config::decrypt_key_pem(key)
@@ -751,6 +798,9 @@ pub fn import_ssh_config_connections(app: &tauri::AppHandle) -> AppResult<usize>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const TEST_PRIVATE_KEY: &str = "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEINTuctv5E1hK1bbY8fdp+K06/nwoy/HU++CXqI9EdVhC\n-----END PRIVATE KEY-----";
+    const TEST_ENCRYPTED_PRIVATE_KEY: &str = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAACmFlczI1Ni1jYmMAAAAGYmNyeXB0AAAAGAAAABDLGyfA39\nJ2FcJygtYqi5ISAAAAEAAAAAEAAAAzAAAAC3NzaC1lZDI1NTE5AAAAIN+Wjn4+4Fcvl2Jl\nKpggT+wCRxpSvtqqpVrQrKN1/A22AAAAkOHDLnYZvYS6H9Q3S3Nk4ri3R2jAZlQlBbUos5\nFkHpYgNw65KCWCTXtP7ye2czMC3zjn2r98pJLobsLYQgRiHIv/CUdAdsqbvMPECB+wl/UQ\ne+JpiSq66Z6GIt0801skPh20jxOO3F52SoX1IeO5D5PXfZrfSZlw6S8c7bwyp2FHxDewRx\n7/wNsnDM0T7nLv/Q==\n-----END OPENSSH PRIVATE KEY-----";
 
     #[test]
     fn glob_matches_basic_patterns() {
@@ -1114,10 +1164,89 @@ mod tests {
     }
 
     #[test]
+    fn multiple_identity_files_are_preserved_in_order() {
+        let ssh_config = parse_test_config(
+            "Host prod\n    IdentityFile ~/.ssh/id_ed25519\n    IdentityFile ~/.ssh/id_rsa\n",
+        );
+        let entry = ssh_config.resolve("prod").unwrap();
+
+        assert_eq!(entry.identity_files.len(), 2);
+        assert!(entry.identity_files[0].ends_with("id_ed25519"));
+        assert!(entry.identity_files[1].ends_with("id_rsa"));
+        assert_eq!(
+            entry.identity_file.as_deref(),
+            Some(entry.identity_files[0].as_str())
+        );
+    }
+
+    #[test]
+    fn multiple_identity_files_keep_agent_auth() {
+        let ssh_config = parse_test_config(
+            "Host prod\n    IdentityFile ~/.ssh/id_ed25519\n    IdentityFile ~/.ssh/id_rsa\n",
+        );
+        let entry = ssh_config.resolve("prod").unwrap();
+        let mut keys = Vec::new();
+        let mut imported_paths = HashMap::new();
+
+        let key_id =
+            import_identity_key_with_encrypt(&entry, &mut keys, &mut imported_paths, |_| {
+                panic!("multiple identities must not select key auth")
+            })
+            .unwrap();
+        let connection = entry_to_saved_connection(&entry, None, key_id);
+
+        assert!(keys.is_empty());
+        assert_eq!(connection.auth.as_ref().unwrap().mode, "agent");
+        assert!(
+            connection
+                .description
+                .as_deref()
+                .unwrap()
+                .contains("IdentityFile entries; using SSH agent")
+        );
+    }
+
+    #[test]
+    fn readable_public_key_file_falls_back_to_agent() {
+        let root = test_temp_dir("public_identity");
+        let key_path = root.join("id_ed25519.pub");
+        fs::write(
+            &key_path,
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBogusPublicKey test\n",
+        )
+        .unwrap();
+        let ssh_config = parse_test_config(&format!(
+            "Host prod\n    IdentityFile {}\n",
+            key_path.to_string_lossy()
+        ));
+        let entry = ssh_config.resolve("prod").unwrap();
+        let mut keys = Vec::new();
+        let mut imported_paths = HashMap::new();
+
+        let key_id =
+            import_identity_key_with_encrypt(&entry, &mut keys, &mut imported_paths, |_| {
+                panic!("public key content must not be imported as a private key")
+            })
+            .unwrap();
+        let connection = entry_to_saved_connection(&entry, None, key_id);
+
+        assert!(keys.is_empty());
+        assert_eq!(connection.auth.as_ref().unwrap().mode, "agent");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn encrypted_private_key_without_passphrase_is_importable() {
+        assert!(private_key_content_is_importable(
+            TEST_ENCRYPTED_PRIVATE_KEY
+        ));
+    }
+
+    #[test]
     fn identity_file_import_reads_and_deduplicates_private_key() {
         let root = test_temp_dir("identity_import");
         let key_path = root.join("id_ed25519");
-        fs::write(&key_path, "private-key-data\n").unwrap();
+        fs::write(&key_path, TEST_PRIVATE_KEY).unwrap();
         let ssh_config = parse_test_config(&format!(
             "Host prod\n    IdentityFile {}\n",
             key_path.to_string_lossy()
@@ -1141,7 +1270,10 @@ mod tests {
 
         assert_eq!(first, second);
         assert_eq!(keys.len(), 1);
-        assert_eq!(keys[0].key.as_deref(), Some("encrypted:private-key-data\n"));
+        assert_eq!(
+            keys[0].key.as_deref(),
+            Some(format!("encrypted:{TEST_PRIVATE_KEY}").as_str())
+        );
         fs::remove_dir_all(root).unwrap();
     }
 

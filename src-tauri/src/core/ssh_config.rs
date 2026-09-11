@@ -5,14 +5,15 @@
 //! IdentityFile, ProxyJump (single/multi-hop), HostKeyAlias, and Include
 //! directives (recursive with cycle detection and glob support).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::{ConnectionAuth, ConnectionType, SavedConnection};
+use crate::config::{ConnectionAuth, ConnectionType, SavedConnection, SshKey};
 use crate::error::{AppError, AppResult};
+use crate::utils::crypto;
 
 /// One parsed `Host` block from the SSH config file.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -549,35 +550,29 @@ fn default_config_path() -> PathBuf {
 }
 
 /// Converts an SshConfigEntry into a SavedConnection for nyaterm.
-/// Uses `agent` auth by default. When an identity file is present, we still
-/// use `agent` because the key file would need to be registered in nyaterm's
-/// key store (which requires reading the file content). The identity file path
-/// is noted as a manual setup requirement rather than claiming the key was
-/// imported.
 fn entry_to_saved_connection(
     entry: &SshConfigEntry,
     proxy_jump_id: Option<String>,
+    key_id: Option<String>,
 ) -> SavedConnection {
-    let description = if entry.proxy_jump.is_some() {
-        format!(
-            "Imported from ~/.ssh/config (ProxyJump: {}{})",
-            entry.proxy_jump.as_ref().unwrap(),
-            if entry.identity_file.is_some() {
-                format!(
-                    ", IdentityFile recognized (configure manually): {}",
-                    entry.identity_file.as_ref().unwrap()
-                )
-            } else {
-                String::new()
-            }
-        )
-    } else if entry.identity_file.is_some() {
-        format!(
-            "Imported from ~/.ssh/config (IdentityFile recognized; configure manually: {})",
-            entry.identity_file.as_ref().unwrap()
-        )
-    } else {
+    let uses_key = key_id.is_some();
+    let mut details = Vec::new();
+    if let Some(proxy_jump) = entry.proxy_jump.as_deref() {
+        details.push(format!("ProxyJump: {proxy_jump}"));
+    }
+    if let Some(identity_file) = entry.identity_file.as_deref() {
+        if uses_key {
+            details.push(format!("IdentityFile: {identity_file}"));
+        } else {
+            details.push(format!(
+                "IdentityFile unavailable; using SSH agent: {identity_file}"
+            ));
+        }
+    }
+    let description = if details.is_empty() {
         "Imported from ~/.ssh/config".to_string()
+    } else {
+        format!("Imported from ~/.ssh/config ({})", details.join(", "))
     };
 
     SavedConnection {
@@ -601,10 +596,10 @@ fn entry_to_saved_connection(
         icon: None,
         icon_auto_detect: None,
         auth: Some(ConnectionAuth {
-            mode: "agent".to_string(),
+            mode: if uses_key { "key" } else { "agent" }.to_string(),
             password_id: None,
             password: None,
-            key_id: None,
+            key_id,
             otp_id: None,
             auto_fill_otp: false,
             has_password: false,
@@ -626,6 +621,81 @@ fn entry_to_saved_connection(
     }
 }
 
+fn identity_file_path(identity_file: &str) -> Option<PathBuf> {
+    let value = identity_file.trim();
+    if value.is_empty() || value.eq_ignore_ascii_case("none") {
+        return None;
+    }
+    let value = if value.len() >= 2
+        && ((value.starts_with('"') && value.ends_with('"'))
+            || (value.starts_with('\'') && value.ends_with('\'')))
+    {
+        &value[1..value.len() - 1]
+    } else {
+        value
+    };
+    Some(PathBuf::from(expand_tilde(value)))
+}
+
+fn import_identity_key_with_encrypt<F>(
+    entry: &SshConfigEntry,
+    keys: &mut Vec<SshKey>,
+    imported_paths: &mut HashMap<PathBuf, String>,
+    encrypt: F,
+) -> AppResult<Option<String>>
+where
+    F: FnOnce(&str) -> AppResult<String>,
+{
+    let Some(identity_file) = entry.identity_file.as_deref() else {
+        return Ok(None);
+    };
+    let Some(path) = identity_file_path(identity_file) else {
+        return Ok(None);
+    };
+    let dedupe_path = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+    if let Some(key_id) = imported_paths.get(&dedupe_path) {
+        return Ok(Some(key_id.clone()));
+    }
+
+    let content = match fs::read_to_string(&path) {
+        Ok(content) if !content.trim().is_empty() => content,
+        Ok(_) | Err(_) => return Ok(None),
+    };
+    let key_id = uuid::Uuid::new_v4().to_string();
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty());
+    let name = file_name.map_or_else(
+        || format!("{} SSH key", entry.alias),
+        |file_name| format!("{} ({file_name})", entry.alias),
+    );
+
+    keys.push(SshKey {
+        id: key_id.clone(),
+        name,
+        key: Some(encrypt(&content)?),
+        cert: None,
+        passphrase: None,
+        key_data: None,
+        cert_data: None,
+        key_file_path: None,
+        cert_file_path: None,
+        has_key_data: false,
+        has_cert_data: false,
+    });
+    imported_paths.insert(dedupe_path, key_id.clone());
+    Ok(Some(key_id))
+}
+
+fn import_identity_key(
+    entry: &SshConfigEntry,
+    keys: &mut Vec<SshKey>,
+    imported_paths: &mut HashMap<PathBuf, String>,
+) -> AppResult<Option<String>> {
+    import_identity_key_with_encrypt(entry, keys, imported_paths, crypto::encrypt)
+}
+
 /// Imports SSH config hosts as saved connections, skipping existing names.
 /// Each ProxyJump list is materialized in reverse linkage order because the
 /// runtime recursively follows `proxy_jump_id` from a target to the previous
@@ -634,11 +704,22 @@ fn entry_to_saved_connection(
 pub fn import_ssh_config_connections(app: &tauri::AppHandle) -> AppResult<usize> {
     let config = SshConfig::load_default()?;
     let mut cfg = crate::config::load_config(app)?;
-    let connections = build_imported_connections(&config, &cfg.connections)?;
+    let mut keys = crate::config::load_keys(app)?;
+    let initial_key_count = keys.keys.len();
+    let mut imported_identity_paths = HashMap::new();
+    let connections =
+        build_imported_connections_with_key_resolver(&config, &cfg.connections, |entry| {
+            import_identity_key(entry, &mut keys.keys, &mut imported_identity_paths)
+        })?;
     let count = connections.len();
     cfg.connections.extend(connections);
 
     if count > 0 {
+        if keys.keys.len() != initial_key_count {
+            // Persist keys first so a config write can never leave a connection
+            // pointing at a key that was not stored successfully.
+            crate::config::save_keys(app, &keys)?;
+        }
         crate::config::save_config(app, &cfg)?;
     }
 
@@ -967,20 +1048,71 @@ mod tests {
     }
 
     #[test]
-    fn identity_file_is_manual_agent_setup_not_key_import() {
+    fn identity_file_uses_imported_key_when_available() {
         let ssh_config = parse_test_config("Host prod\n    IdentityFile ~/.ssh/id_ed25519\n");
         let entry = ssh_config.resolve("prod").unwrap();
-        let connection = entry_to_saved_connection(&entry, None);
+        let connection = entry_to_saved_connection(&entry, None, Some("key-1".to_string()));
+        let auth = connection.auth.as_ref().unwrap();
 
-        assert_eq!(connection.auth.as_ref().unwrap().mode, "agent");
-        assert!(connection.auth.as_ref().unwrap().key_id.is_none());
+        assert_eq!(auth.mode, "key");
+        assert_eq!(auth.key_id.as_deref(), Some("key-1"));
         assert!(
             connection
                 .description
                 .as_deref()
                 .unwrap()
-                .contains("configure manually")
+                .contains("IdentityFile:")
         );
+    }
+
+    #[test]
+    fn unavailable_identity_file_falls_back_to_agent() {
+        let ssh_config = parse_test_config("Host prod\n    IdentityFile ~/.ssh/missing-key\n");
+        let entry = ssh_config.resolve("prod").unwrap();
+        let connection = entry_to_saved_connection(&entry, None, None);
+        let auth = connection.auth.as_ref().unwrap();
+
+        assert_eq!(auth.mode, "agent");
+        assert!(auth.key_id.is_none());
+        assert!(
+            connection
+                .description
+                .as_deref()
+                .unwrap()
+                .contains("using SSH agent")
+        );
+    }
+
+    #[test]
+    fn identity_file_import_reads_and_deduplicates_private_key() {
+        let root = test_temp_dir("identity_import");
+        let key_path = root.join("id_ed25519");
+        fs::write(&key_path, "private-key-data\n").unwrap();
+        let ssh_config = parse_test_config(&format!(
+            "Host prod\n    IdentityFile {}\n",
+            key_path.to_string_lossy()
+        ));
+        let entry = ssh_config.resolve("prod").unwrap();
+        let mut keys = Vec::new();
+        let mut imported_paths = HashMap::new();
+
+        let first =
+            import_identity_key_with_encrypt(&entry, &mut keys, &mut imported_paths, |content| {
+                Ok(format!("encrypted:{content}"))
+            })
+            .unwrap()
+            .unwrap();
+        let second =
+            import_identity_key_with_encrypt(&entry, &mut keys, &mut imported_paths, |_| {
+                panic!("deduplicated key should not be encrypted twice")
+            })
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(first, second);
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0].key.as_deref(), Some("encrypted:private-key-data\n"));
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -1239,12 +1371,14 @@ struct ImportNode {
 
 /// Builds the connection graph before it is persisted. Kept separate from the
 /// Tauri/storage boundary so the exact runtime graph can be tested.
-fn build_imported_connections(
+fn build_imported_connections_with_key_resolver<F>(
     config: &SshConfig,
     existing: &[SavedConnection],
-) -> AppResult<Vec<SavedConnection>> {
-    use std::collections::HashMap;
-
+    mut resolve_key: F,
+) -> AppResult<Vec<SavedConnection>>
+where
+    F: FnMut(&SshConfigEntry) -> AppResult<Option<String>>,
+{
     let entries = config.to_entries()?;
     let mut nodes: HashMap<String, ImportNode> = HashMap::new();
     let mut links: HashMap<String, String> = HashMap::new();
@@ -1311,13 +1445,22 @@ fn build_imported_connections(
             continue;
         }
 
-        let mut connection = entry_to_saved_connection(&node.entry, expected_jump_id);
+        let key_id = resolve_key(&node.entry)?;
+        let mut connection = entry_to_saved_connection(&node.entry, expected_jump_id, key_id);
         connection.id = ids.get(&node.key).expect("generated ID exists").clone();
         connection.name = node.name;
         imported.push(connection);
     }
 
     Ok(imported)
+}
+
+#[cfg(test)]
+fn build_imported_connections(
+    config: &SshConfig,
+    existing: &[SavedConnection],
+) -> AppResult<Vec<SavedConnection>> {
+    build_imported_connections_with_key_resolver(config, existing, |_| Ok(None))
 }
 
 fn set_import_link(

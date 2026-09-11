@@ -609,6 +609,8 @@ export default function XTerminal({
     searchState,
     searchFlags,
     setSearchFlag,
+    wrapAround,
+    setWrapAround,
     activeMode,
     setActiveMode,
     historyState,
@@ -2748,11 +2750,13 @@ export default function XTerminal({
           searchQuery={searchQuery}
           searchState={searchState}
           searchFlags={searchFlags}
+          wrapAround={wrapAround}
           activeMode={activeMode}
           historyState={historyState}
           setSearchQuery={handleTerminalSearchQueryChange}
           onModeChange={handleTerminalSearchModeChange}
           onSearchFlagChange={handleTerminalSearchFlagChange}
+          onWrapAroundChange={setWrapAround}
           onNext={handleSearchNext}
           onPrev={handleSearchPrev}
           onClose={handleTerminalSearchClose}

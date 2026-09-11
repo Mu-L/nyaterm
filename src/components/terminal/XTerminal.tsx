@@ -106,6 +106,7 @@ import type { TerminalOutputDrain } from "./terminalOutputDrain";
 import { AlternateScreenStateTracker } from "./alternateScreenStateTracker";
 import type { Dec2026FrameGate } from "./dec2026FrameGate";
 import { useTerminalExternalDrop } from "./useTerminalExternalDrop";
+import { useTerminalFocusRestore } from "./useTerminalFocusRestore";
 import { useTerminalRefreshEffects } from "./useTerminalRefreshEffects";
 import {
   buildClipboardPathPasteText,
@@ -254,6 +255,10 @@ export default function XTerminal({
   const disconnectedNoticeShownRef = useRef(false);
   const disconnectedCloseRequestedRef = useRef(false);
   const reconnectingRef = useRef(false);
+  // Set when a terminal renderer is torn down while it owned keyboard focus
+  // (e.g. a reconnect swaps the session id) so the rebuilt terminal can take
+  // the focus back once it is ready. See issue #603.
+  const pendingFocusRestoreRef = useRef(false);
   const preservedReconnectContentRef = useRef<TerminalReconnectSnapshot | null>(
     null,
   );
@@ -2489,6 +2494,11 @@ export default function XTerminal({
       if (!isHibernateRendererCleanup) {
         resumeDynamicTitlePublication(sessionId);
       }
+      const previousTextarea = terminal.textarea;
+      pendingFocusRestoreRef.current =
+        Boolean(previousTextarea) &&
+        document.activeElement === previousTextarea &&
+        activeRef.current;
       terminal.dispose();
       terminalRef.current = null;
       setTerminalInstance(null);
@@ -2498,6 +2508,20 @@ export default function XTerminal({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hibernated, sessionId, terminalGeneration, terminalTransparencyEnabled]);
+
+  // Restore keyboard focus after an in-place terminal rebuild (reconnect swaps
+  // the session id, hibernate wake, transparency toggle). Without this the
+  // disposed renderer's textarea drops focus to <body> and typing after a
+  // reconnect silently does nothing until the user clicks the terminal.
+  useTerminalFocusRestore({
+    terminalRef,
+    pendingFocusRestoreRef,
+    activeRef,
+    visibleRef,
+    terminalReady,
+    restoringSnapshot,
+    hibernated,
+  });
 
   // Appearance, theme, and interaction settings sync.
   // Declared AFTER the terminal creation effect so effects from these hooks

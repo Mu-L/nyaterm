@@ -29,6 +29,7 @@ function createHarness(
   imeRoute: XTerminalImeKeyboardRoute,
   sessionType: SessionType = "Local",
   keybindings: Record<string, string> = {},
+  options: { isMacOS?: boolean } = {},
 ) {
   const keyHandlerRef: {
     current: ((event: KeyboardEvent) => boolean) | null;
@@ -54,6 +55,7 @@ function createHarness(
 
   installXTerminalKeyboardController({
     terminal,
+    isMacOS: options.isMacOS ?? false,
     imeTracker: { routeKeyboardEvent },
     terminalAppSettingsRef: {
       current: { keybindings } as TerminalAppSettings,
@@ -220,5 +222,54 @@ describe("installXTerminalKeyboardController IME Backspace routing", () => {
     expect(harness.keyHandler(event)).toBe(false);
     expect(event.defaultPrevented).toBe(true);
     expect(writeClipboardText).toHaveBeenCalledWith("selected output");
+  });
+
+  it("copies a selection for plain Cmd+C on macOS", () => {
+    const harness = createHarness("application", "SSH", {}, { isMacOS: true });
+    vi.mocked(harness.terminal.hasSelection).mockReturnValue(true);
+    vi.mocked(harness.terminal.getSelection).mockReturnValue("selected output");
+    const event = new KeyboardEvent("keydown", {
+      key: "c",
+      code: "KeyC",
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+
+    expect(harness.keyHandler(event)).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
+    expect(writeClipboardText).toHaveBeenCalledWith("selected output");
+  });
+
+  it("lets plain Cmd+C fall through on macOS when there is no selection", () => {
+    const harness = createHarness("application", "SSH", {}, { isMacOS: true });
+    const event = new KeyboardEvent("keydown", {
+      key: "c",
+      code: "KeyC",
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+
+    expect(harness.keyHandler(event)).toBe(true);
+    expect(event.defaultPrevented).toBe(false);
+    expect(writeClipboardText).not.toHaveBeenCalled();
+  });
+
+  it("does not intercept Meta+C outside macOS", () => {
+    const harness = createHarness("application", "SSH");
+    vi.mocked(harness.terminal.hasSelection).mockReturnValue(true);
+    vi.mocked(harness.terminal.getSelection).mockReturnValue("selected output");
+    const event = new KeyboardEvent("keydown", {
+      key: "c",
+      code: "KeyC",
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+
+    expect(harness.keyHandler(event)).toBe(true);
+    expect(event.defaultPrevented).toBe(false);
+    expect(writeClipboardText).not.toHaveBeenCalled();
   });
 });

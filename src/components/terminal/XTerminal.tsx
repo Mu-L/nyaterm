@@ -1537,6 +1537,7 @@ export default function XTerminal({
 
     installXTerminalKeyboardController({
       terminal,
+      isMacOS,
       imeTracker,
       terminalAppSettingsRef,
       sessionTypeRef,

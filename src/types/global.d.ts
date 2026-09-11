@@ -1952,6 +1952,7 @@ export interface SshConfigEntry {
   port: number;
   user: string;
   identityFile?: string | null;
+  identityFiles?: string[];
   proxyJump?: string | null;
   hops: SshConfigHop[];
   hostKeyAlias?: string | null;

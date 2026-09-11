@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useApp } from "@/context/AppContext";
+import { useSettingsDraft } from "@/context/SettingsDraftContext";
 import { useTheme } from "@/context/ThemeContext";
 import {
   BACKGROUND_IMAGE_FITS,
@@ -886,12 +887,41 @@ export function AppearanceTab() {
   }, []);
 
   const updateAppearance = useCallback(
-    (patch: Partial<AppearanceSettings>) => {
+    (
+      patch:
+        | Partial<AppearanceSettings>
+        | ((prev: AppearanceSettings) => Partial<AppearanceSettings>),
+    ) => {
       updateAppSettings((prev) => ({
-        appearance: { ...prev.appearance, ...patch },
+        appearance: {
+          ...prev.appearance,
+          ...(typeof patch === "function" ? patch(prev.appearance) : patch),
+        },
       }));
     },
     [updateAppSettings],
+  );
+
+  const { updateCommittedAppSettings } = useSettingsDraft();
+
+  // Theme designer operations (import/save/delete) have immediate-effect
+  // semantics: apply them to the settings draft AND the committed app settings
+  // so they persist and appear in every theme list without restarting.
+  const applyAppearance = useCallback(
+    (
+      patch:
+        | Partial<AppearanceSettings>
+        | ((prev: AppearanceSettings) => Partial<AppearanceSettings>),
+    ) => {
+      updateAppearance(patch);
+      updateCommittedAppSettings((prev) => ({
+        appearance: {
+          ...prev.appearance,
+          ...(typeof patch === "function" ? patch(prev.appearance) : patch),
+        },
+      }));
+    },
+    [updateAppearance, updateCommittedAppSettings],
   );
   const updateUiFontFamily = useCallback(
     (uiFontFamily: string) => updateAppearance({ ui_font_family: uiFontFamily }),
@@ -1109,7 +1139,7 @@ export function AppearanceTab() {
         onClose={() => setThemeDesignerOpen(false)}
         appearance={appearance}
         availableThemes={themeNames}
-        updateAppearance={updateAppearance}
+        applyAppearance={applyAppearance}
       />
     </div>
   );

@@ -113,11 +113,11 @@ describe("RdpPaneHost", () => {
     });
   });
 
-  it("keeps session metadata without rendering interactive hover actions", () => {
+  it("does not render the RDP hover information bar", () => {
     render(<RdpPaneHost pane={rdpPane()} active visible />);
 
-    expect(screen.getByText("Windows Desktop")).not.toBeNull();
-    expect(screen.getByText("1920x1080")).not.toBeNull();
+    expect(screen.queryByText("Windows Desktop")).toBeNull();
+    expect(screen.queryByText("1920x1080")).toBeNull();
     expect(screen.queryAllByRole("button")).toHaveLength(0);
   });
 });

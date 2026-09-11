@@ -1,6 +1,6 @@
 import { Channel } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { Monitor, ShieldAlert } from "lucide-react";
+import { ShieldAlert } from "lucide-react";
 import {
   memo,
   type FocusEvent as ReactFocusEvent,
@@ -638,14 +638,6 @@ function RdpPaneHost({ pane, active, visible, onConnectionError }: RdpPaneHostPr
         aria-hidden="true"
         className="pointer-events-none absolute left-0 top-0 z-10 hidden"
       />
-
-      <div className="absolute left-2 top-2 flex items-center gap-1 rounded border border-white/15 bg-black/65 px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100">
-        <Monitor className="h-3.5 w-3.5" />
-        <span className="max-w-40 truncate">{pane.name}</span>
-        <span className="text-white/55">
-          {desktopSize.width}x{desktopSize.height}
-        </span>
-      </div>
 
       {state !== "active" && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/45 text-white">

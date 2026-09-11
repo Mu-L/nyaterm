@@ -803,6 +803,11 @@ export default function XTerminal({
       minimumContrastRatio: appearance.minimum_contrast_ratio,
       wordSeparator: interaction.word_separators,
       macOptionIsMeta: interaction.alt_as_meta,
+      // When enabled and an application (e.g. vim with mouse=a) turns on mouse
+      // tracking, normal drag stays text selection and Alt+drag forwards mouse
+      // events to the application (iTerm2-style). Off by default so existing
+      // mouse reporting behavior is unchanged.
+      mouseEventsRequireAlt: interaction.mouse_events_require_alt,
       scrollOnEraseInDisplay: true,
       theme: { ...terminalThemeColors },
       allowTransparency: terminalTransparencyEnabled,
@@ -1532,6 +1537,7 @@ export default function XTerminal({
 
     installXTerminalKeyboardController({
       terminal,
+      isMacOS,
       imeTracker,
       terminalAppSettingsRef,
       sessionTypeRef,

@@ -34,6 +34,7 @@ interface MutableRef<T> {
 
 interface InstallXTerminalKeyboardControllerParams {
   terminal: Terminal;
+  isMacOS: boolean;
   imeTracker: Pick<XTerminalImeTracker, "routeKeyboardEvent">;
   terminalAppSettingsRef: MutableRef<TerminalAppSettings>;
   sessionTypeRef: MutableRef<SessionType>;
@@ -70,6 +71,7 @@ interface InstallXTerminalKeyboardControllerParams {
 
 export function installXTerminalKeyboardController({
   terminal,
+  isMacOS,
   imeTracker,
   terminalAppSettingsRef,
   sessionTypeRef,
@@ -198,6 +200,26 @@ export function installXTerminalKeyboardController({
       e.preventDefault();
       terminal.selectAll();
       return false;
+    }
+
+    // Plain Cmd+C: when the application has enabled keyboard reporting modes
+    // (e.g. kitty keyboard in vim), xterm may consume the key event and the
+    // browser's native copy event never fires, so copy the live selection
+    // explicitly. Without a selection, fall through to normal processing.
+    if (
+      isMacOS &&
+      e.key.toLowerCase() === "c" &&
+      e.metaKey &&
+      !e.ctrlKey &&
+      !e.altKey &&
+      !e.shiftKey
+    ) {
+      const sel = terminal.getSelection();
+      if (sel) {
+        e.preventDefault();
+        writeClipboardText(sel).catch(() => {});
+        return false;
+      }
     }
 
     if (

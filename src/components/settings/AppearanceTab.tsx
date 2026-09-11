@@ -41,7 +41,7 @@ import {
 } from "@/lib/backgroundImage";
 import { invoke } from "@/lib/invoke";
 import { logger } from "@/lib/logger";
-import { isWindows } from "@/lib/platform";
+import { isMacOS, isWindows } from "@/lib/platform";
 import {
   DEFAULT_TERMINAL_FONT_SIZE,
   MAX_TERMINAL_FONT_SIZE,
@@ -971,7 +971,7 @@ export function AppearanceTab() {
         </SettingRow>
       </SettingSection>
 
-      {isWindows && (
+      {(isWindows || isMacOS) && (
         <SettingSection
           title={t("settings.windowTransparency")}
           desc={t("settings.windowTransparencyDesc")}
@@ -988,15 +988,17 @@ export function AppearanceTab() {
               })
             }
           />
-          <SettingRow
-            label={t("settings.windowTransparencyBlur")}
-            desc={t("settings.windowTransparencyBlurDesc")}
-          >
-            <SettingSwitch
-              checked={appearance.window_transparency_blur ?? false}
-              onChange={(v) => updateAppearance({ window_transparency_blur: v })}
-            />
-          </SettingRow>
+          {isWindows && (
+            <SettingRow
+              label={t("settings.windowTransparencyBlur")}
+              desc={t("settings.windowTransparencyBlurDesc")}
+            >
+              <SettingSwitch
+                checked={appearance.window_transparency_blur ?? false}
+                onChange={(v) => updateAppearance({ window_transparency_blur: v })}
+              />
+            </SettingRow>
+          )}
         </SettingSection>
       )}
 

@@ -113,24 +113,12 @@ describe("RdpPaneHost", () => {
     });
   });
 
-  it("keeps reconnect and disconnect controls wired to their existing actions", async () => {
-    const onDisconnectedCloseRequested = vi.fn();
-    render(
-      <RdpPaneHost
-        pane={rdpPane()}
-        active
-        visible
-        onDisconnectedCloseRequested={onDisconnectedCloseRequested}
-      />,
-    );
+  it("keeps session metadata without rendering interactive hover actions", () => {
+    render(<RdpPaneHost pane={rdpPane()} active visible />);
 
-    const controls = screen.getAllByRole("button");
-    expect(controls).toHaveLength(3);
-    fireEvent.click(controls[1]);
-    fireEvent.click(controls[2]);
-
-    expect(invokeMock).toHaveBeenCalledWith("rdp_reconnect", { sessionId: "rdp-session" });
-    expect(onDisconnectedCloseRequested).toHaveBeenCalledOnce();
+    expect(screen.getByText("Windows Desktop")).not.toBeNull();
+    expect(screen.getByText("1920x1080")).not.toBeNull();
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
   });
 });
 

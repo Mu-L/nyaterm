@@ -165,6 +165,28 @@ describe("xterm IME compatibility", () => {
     patch.dispose();
   });
 
+  it("does not let stale cleanup erase a new Linux composition", () => {
+    vi.useFakeTimers();
+    platform.isLinux = true;
+    platform.isMacOS = false;
+    const { core, terminal, textarea } = createHarness();
+    const patch = installImeCompatibilityPatch(terminal, true);
+
+    textarea.value = "一";
+    textarea.dispatchEvent(
+      new CompositionEvent("compositionend", { bubbles: true }),
+    );
+
+    core._compositionHelper.compositionstart();
+    expect(textarea.value).toBe("");
+
+    textarea.value = "二";
+    vi.runAllTimers();
+
+    expect(textarea.value).toBe("二");
+    patch.dispose();
+  });
+
   it("cancels pending Linux textarea cleanup when disposed", () => {
     vi.useFakeTimers();
     platform.isLinux = true;

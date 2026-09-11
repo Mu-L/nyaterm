@@ -90,6 +90,9 @@ export function installImeCompatibilityPatch(
   // biome-ignore lint/suspicious/noExplicitAny: Accessing xterm.js private compositionHelper
   const compositionHelper = core._compositionHelper as Record<string, any>;
   const originalCompositionStart = compositionHelper.compositionstart;
+  let compositionEndTextarea: HTMLTextAreaElement | null = null;
+  let compositionEndCleanupTimer: number | undefined;
+
   if (typeof originalCompositionStart !== "function") {
     warnSkipped("missing_composition_start", sessionId);
     return noopDisposable;
@@ -97,6 +100,16 @@ export function installImeCompatibilityPatch(
 
   // biome-ignore lint/suspicious/noExplicitAny: xterm compositionstart context and arguments
   const patchedCompositionStart = function (this: any, ...args: any[]) {
+    // Consume pending cleanup before xterm starts the next composition so an
+    // older timer cannot erase text that belongs to the new composition.
+    if (isLinux && compositionEndCleanupTimer !== undefined) {
+      window.clearTimeout(compositionEndCleanupTimer);
+      compositionEndCleanupTimer = undefined;
+      if (compositionEndTextarea?.value) {
+        compositionEndTextarea.value = "";
+      }
+    }
+
     if (this._textareaChangeTimer !== undefined) {
       window.clearTimeout(this._textareaChangeTimer);
       this._textareaChangeTimer = undefined;
@@ -111,8 +124,6 @@ export function installImeCompatibilityPatch(
   let latestKeydownWas229 = false;
   let latestKeydownWasModifierOnly = false;
   let keydownInstalled = false;
-  let compositionEndTextarea: HTMLTextAreaElement | null = null;
-  let compositionEndCleanupTimer: number | undefined;
 
   const handleCompositionEnd = () => {
     if (!compositionEndTextarea) return;

@@ -499,7 +499,7 @@ fn derive_display_name(patterns: &[String]) -> String {
 }
 
 fn expand_tilde(path: &str) -> String {
-    if let Some(rest) = path.strip_prefix("~/") {
+    if let Some(rest) = path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\")) {
         if let Some(home) = dirs::home_dir() {
             return home.join(rest).to_string_lossy().into_owned();
         }
@@ -661,6 +661,18 @@ where
         Ok(content) if !content.trim().is_empty() => content,
         Ok(_) | Err(_) => return Ok(None),
     };
+
+    if let Some(existing_id) = keys.iter().find_map(|key| {
+        crate::config::decrypt_key_pem(key)
+            .ok()
+            .flatten()
+            .filter(|existing| existing == &content)
+            .map(|_| key.id.clone())
+    }) {
+        imported_paths.insert(dedupe_path, existing_id.clone());
+        return Ok(Some(existing_id));
+    }
+
     let key_id = uuid::Uuid::new_v4().to_string();
     let file_name = path
         .file_name()
@@ -705,7 +717,8 @@ pub fn import_ssh_config_connections(app: &tauri::AppHandle) -> AppResult<usize>
     let config = SshConfig::load_default()?;
     let mut cfg = crate::config::load_config(app)?;
     let mut keys = crate::config::load_keys(app)?;
-    let initial_key_count = keys.keys.len();
+    let original_keys = keys.clone();
+    let initial_key_count = original_keys.keys.len();
     let mut imported_identity_paths = HashMap::new();
     let connections =
         build_imported_connections_with_key_resolver(&config, &cfg.connections, |entry| {
@@ -720,7 +733,16 @@ pub fn import_ssh_config_connections(app: &tauri::AppHandle) -> AppResult<usize>
             // pointing at a key that was not stored successfully.
             crate::config::save_keys(app, &keys)?;
         }
-        crate::config::save_config(app, &cfg)?;
+        if let Err(error) = crate::config::save_config(app, &cfg) {
+            if keys.keys.len() != initial_key_count {
+                if let Err(rollback_error) = crate::config::save_keys(app, &original_keys) {
+                    return Err(AppError::Config(format!(
+                        "failed to save imported SSH connections ({error}); also failed to roll back imported SSH keys ({rollback_error})"
+                    )));
+                }
+            }
+            return Err(error);
+        }
     }
 
     Ok(count)
@@ -1081,6 +1103,14 @@ mod tests {
                 .unwrap()
                 .contains("using SSH agent")
         );
+    }
+
+    #[test]
+    fn identity_file_path_expands_windows_style_tilde_prefix() {
+        let home = dirs::home_dir().expect("home directory");
+        let path = identity_file_path(r#"~\.ssh\id_ed25519"#).expect("identity path");
+
+        assert_eq!(path, home.join(r#".ssh\id_ed25519"#));
     }
 
     #[test]

@@ -1,9 +1,18 @@
 import type { Terminal } from "@xterm/xterm";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/platform", () => ({
+const platform = vi.hoisted(() => ({
   isLinux: false,
   isMacOS: true,
+}));
+
+vi.mock("@/lib/platform", () => ({
+  get isLinux() {
+    return platform.isLinux;
+  },
+  get isMacOS() {
+    return platform.isMacOS;
+  },
 }));
 
 vi.mock("@/lib/logger", () => ({
@@ -70,6 +79,15 @@ function inputEvent(data: string): InputEvent {
 }
 
 describe("xterm IME compatibility", () => {
+  beforeEach(() => {
+    platform.isLinux = false;
+    platform.isMacOS = true;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("forces the first direct-commit character after a held modifier", () => {
     const { core, observedKeyDownSeen, terminal, textarea } = createHarness();
     const patch = installImeCompatibilityPatch(terminal, true);
@@ -119,5 +137,70 @@ describe("xterm IME compatibility", () => {
 
     expect(observedKeyDownSeen).toEqual([true]);
     patch.dispose();
+  });
+
+  it("clears stale Linux textarea state after compositionend", () => {
+    vi.useFakeTimers();
+    platform.isLinux = true;
+    platform.isMacOS = false;
+    const { terminal, textarea } = createHarness();
+    const patch = installImeCompatibilityPatch(terminal, true);
+
+    textarea.value = "一";
+    textarea.dispatchEvent(
+      new CompositionEvent("compositionend", { bubbles: true }),
+    );
+    expect(textarea.value).toBe("一");
+
+    vi.runAllTimers();
+    expect(textarea.value).toBe("");
+
+    textarea.value = "二";
+    textarea.dispatchEvent(
+      new CompositionEvent("compositionend", { bubbles: true }),
+    );
+    vi.runAllTimers();
+    expect(textarea.value).toBe("");
+
+    patch.dispose();
+  });
+
+  it("does not let stale cleanup erase a new Linux composition", () => {
+    vi.useFakeTimers();
+    platform.isLinux = true;
+    platform.isMacOS = false;
+    const { core, terminal, textarea } = createHarness();
+    const patch = installImeCompatibilityPatch(terminal, true);
+
+    textarea.value = "一";
+    textarea.dispatchEvent(
+      new CompositionEvent("compositionend", { bubbles: true }),
+    );
+
+    core._compositionHelper.compositionstart();
+    expect(textarea.value).toBe("");
+
+    textarea.value = "二";
+    vi.runAllTimers();
+
+    expect(textarea.value).toBe("二");
+    patch.dispose();
+  });
+
+  it("cancels pending Linux textarea cleanup when disposed", () => {
+    vi.useFakeTimers();
+    platform.isLinux = true;
+    platform.isMacOS = false;
+    const { terminal, textarea } = createHarness();
+    const patch = installImeCompatibilityPatch(terminal, true);
+
+    textarea.value = "一";
+    textarea.dispatchEvent(
+      new CompositionEvent("compositionend", { bubbles: true }),
+    );
+    patch.dispose();
+    vi.runAllTimers();
+
+    expect(textarea.value).toBe("一");
   });
 });

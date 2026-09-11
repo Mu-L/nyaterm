@@ -90,6 +90,9 @@ export function installImeCompatibilityPatch(
   // biome-ignore lint/suspicious/noExplicitAny: Accessing xterm.js private compositionHelper
   const compositionHelper = core._compositionHelper as Record<string, any>;
   const originalCompositionStart = compositionHelper.compositionstart;
+  let compositionEndTextarea: HTMLTextAreaElement | null = null;
+  let compositionEndCleanupTimer: number | undefined;
+
   if (typeof originalCompositionStart !== "function") {
     warnSkipped("missing_composition_start", sessionId);
     return noopDisposable;
@@ -97,6 +100,16 @@ export function installImeCompatibilityPatch(
 
   // biome-ignore lint/suspicious/noExplicitAny: xterm compositionstart context and arguments
   const patchedCompositionStart = function (this: any, ...args: any[]) {
+    // Consume pending cleanup before xterm starts the next composition so an
+    // older timer cannot erase text that belongs to the new composition.
+    if (isLinux && compositionEndCleanupTimer !== undefined) {
+      window.clearTimeout(compositionEndCleanupTimer);
+      compositionEndCleanupTimer = undefined;
+      if (compositionEndTextarea?.value) {
+        compositionEndTextarea.value = "";
+      }
+    }
+
     if (this._textareaChangeTimer !== undefined) {
       window.clearTimeout(this._textareaChangeTimer);
       this._textareaChangeTimer = undefined;
@@ -111,6 +124,35 @@ export function installImeCompatibilityPatch(
   let latestKeydownWas229 = false;
   let latestKeydownWasModifierOnly = false;
   let keydownInstalled = false;
+
+  const handleCompositionEnd = () => {
+    if (!compositionEndTextarea) return;
+
+    if (compositionEndCleanupTimer !== undefined) {
+      window.clearTimeout(compositionEndCleanupTimer);
+    }
+    compositionEndCleanupTimer = window.setTimeout(() => {
+      compositionEndCleanupTimer = undefined;
+      if (compositionEndTextarea?.value) {
+        compositionEndTextarea.value = "";
+      }
+    }, 0);
+  };
+
+  // WebKitGTK can leave committed composition text in xterm's textarea, so the
+  // next IME commit may replay stale text unless we reset it after xterm handles the event.
+  if (isLinux) {
+    if (core.textarea instanceof HTMLTextAreaElement) {
+      compositionEndTextarea = core.textarea;
+      compositionEndTextarea.addEventListener(
+        "compositionend",
+        handleCompositionEnd,
+        false,
+      );
+    } else {
+      warnSkipped("missing_linux_textarea", sessionId);
+    }
+  }
 
   const handleKeyDown = (event: KeyboardEvent) => {
     latestKeydownWas229 = event.keyCode === 229;
@@ -173,6 +215,17 @@ export function installImeCompatibilityPatch(
 
   return {
     dispose() {
+      if (compositionEndTextarea) {
+        compositionEndTextarea.removeEventListener(
+          "compositionend",
+          handleCompositionEnd,
+          false,
+        );
+      }
+      if (compositionEndCleanupTimer !== undefined) {
+        window.clearTimeout(compositionEndCleanupTimer);
+        compositionEndCleanupTimer = undefined;
+      }
       if (keydownInstalled && textarea) {
         textarea.removeEventListener("keydown", handleKeyDown, true);
       }

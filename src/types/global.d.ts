@@ -1169,6 +1169,7 @@ export type WindowTransparency = "none" | "transparent";
 export interface TerminalThemeColors {
   background: string;
   foreground: string;
+  foregroundIntense?: string;
   cursor: string;
   selectionBackground: string;
   lineHighlight: string;
@@ -1234,6 +1235,7 @@ export interface AppearanceSettings {
   font_size: number;
   font_weight: number;
   font_weight_bold: number;
+  bold_default_foreground_highlight: boolean;
   background_opacity: number;
   background_image_path: string | null;
   background_image_fit: BackgroundImageFit;

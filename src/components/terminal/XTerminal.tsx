@@ -51,6 +51,7 @@ import {
   normalizeTerminalCommandInput,
   type SendSessionInputOptions,
   type SessionInputPreview,
+  sendSessionBinaryInput,
   sendSessionInput,
   sendSessionInputWithSync,
 } from "@/lib/sessionInput";
@@ -2354,6 +2355,16 @@ export default function XTerminal({
       sendRawInput(data, data === "\r" && command ? command : null);
     });
 
+    const binaryDisposable = terminal.onBinary((data) => {
+      if (shouldBlockXTerminalData(appLockedRef.current, "keyboard")) return;
+      if (aiCapturingRef.current) return;
+      if (hibernationPhaseRef.current !== "idle") {
+        requestWake("input");
+      }
+      if (disconnectedRef.current) return;
+      void sendSessionBinaryInput(sessionIdRef.current, data).catch(() => {});
+    });
+
     const resizeDisposable = terminal.onResize(({ cols, rows }) => {
       sendBackendResize(cols, rows, "xterm.onResize");
       refreshGutter();
@@ -2499,6 +2510,7 @@ export default function XTerminal({
       clipboardOscDisposable.dispose();
       writeParsedDisposable.dispose();
       dataDisposable.dispose();
+      binaryDisposable.dispose();
       resizeDisposable.dispose();
       scrollDisposable.dispose();
       for (const disposable of searchLifecycleDisposables) {

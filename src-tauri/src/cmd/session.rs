@@ -919,6 +919,7 @@ pub async fn write_to_session(
             &session_id,
             SessionCommand::Write {
                 data: data.into_bytes(),
+                raw: false,
                 automated,
                 origin,
                 sensitivity,
@@ -953,6 +954,26 @@ pub async fn write_to_session(
     }
 
     result
+}
+
+#[tauri::command]
+pub async fn write_bytes_to_session(
+    state: tauri::State<'_, Arc<SessionManager>>,
+    session_id: String,
+    data: Vec<u8>,
+) -> AppResult<()> {
+    state
+        .send_command(
+            &session_id,
+            SessionCommand::Write {
+                data,
+                raw: true,
+                automated: false,
+                origin: InputOrigin::Keyboard,
+                sensitivity: InputSensitivity::Normal,
+            },
+        )
+        .await
 }
 
 #[tauri::command]

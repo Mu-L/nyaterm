@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("./invoke", () => ({ invoke: mocks.invoke }));
 
-import { sendSessionInput, sendSessionInputWithSync } from "./sessionInput";
+import { sendSessionBinaryInput, sendSessionInput, sendSessionInputWithSync } from "./sessionInput";
 
 describe("sendSessionInputWithSync command confirmation", () => {
   beforeEach(() => {
@@ -24,6 +24,16 @@ describe("sendSessionInputWithSync command confirmation", () => {
       data: "\x1b[?1;2c",
       origin: "terminal_response",
       sensitivity: undefined,
+    });
+  });
+
+  it("sends binary input as exact low-byte values without text bookkeeping", async () => {
+    await sendSessionBinaryInput("primary", "\x1b[M \x80\xff");
+
+    expect(mocks.invoke).toHaveBeenCalledTimes(1);
+    expect(mocks.invoke).toHaveBeenCalledWith("write_bytes_to_session", {
+      sessionId: "primary",
+      data: [0x1b, 0x5b, 0x4d, 0x20, 0x80, 0xff],
     });
   });
 

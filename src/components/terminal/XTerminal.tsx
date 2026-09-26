@@ -134,6 +134,7 @@ import {
   shouldBlockXTerminalData,
 } from "./xterminalKeyboardInput";
 import {
+  clearTerminalAll,
   markTerminalUserInput,
   registerTerminalUserInputMarker,
 } from "@/lib/terminalControlInput";
@@ -1752,7 +1753,9 @@ export default function XTerminal({
       if (appLockedRef.current) return;
       lineTimestampsRef.current = new Map();
       gutterLineOffsetRef.current = 0;
-      terminal.reset();
+      clearTerminalAll(terminal, {
+        shellRedraw: sessionTypeRef.current !== "Local" || !isWindows,
+      });
       focusTerminal();
       requestGutterRefresh();
     };
